@@ -17,22 +17,25 @@ case class QIsabelleRoutes()(implicit cc: castor.Context,
   }
 
   @cask.postJson("/initializePisaOS")
-  def initializePisaOS(workingDir: String, theoryPath: String): String = {
+  def initializePisaOS(workingDir: String, theoryPath: String, target: String): String = {
     println("initializePisaOS 1: new PisaOS")
     try {
       pisaos = new MiniPisaOS(
-        path_to_isa_bin = "/home/isabelle/Isabelle/bin/isabelle",
-        working_directory = "/afp/" + workingDir,
-        path_to_file = "/afp/" + theoryPath,
+        path_to_isa_bin = "/home/isabelle/Isabelle/",
+        working_directory = workingDir,
+        path_to_file = theoryPath,
         debug = true,
       )
     } catch {
       case e: Throwable => return ("error during init of PisaOS (probably in begin_theory): " + e.toString())
     }
     println("initializePisaOS 2: step_to_transition_text")
-    // stand_in_thy = pisaos.thy1.mlValue
-    // stand_in_tls = pisaos.copy_tls
-    pisaos.step_to_transition_text("end", after=false)
+    // pisaos.step_to_transition_text("end", after=false)
+    val s = pisaos.step_to_transition_text(target, after=false)
+    println("state=", s)
+    if (s.startsWith("error")) {
+      return s
+    }
     println("initializePisaOS 3: top_level_state_map +=")
     pisaos.top_level_state_map += ("default" -> pisaos.copy_tls)
     println("initializePisaOS 4: done.")
@@ -48,7 +51,7 @@ case class QIsabelleRoutes()(implicit cc: castor.Context,
 
   @cask.postJson("/step")
   def step(state_name: String, action: String, new_state_name: String): ujson.Obj = {
-    var TIMEOUT: Int = 30000
+    var TIMEOUT: Int = 2000
     val old_state: ToplevelState = pisaos.retrieve_tls(state_name)
     var actual_action: String = action
     var hammered: Boolean = false
@@ -70,10 +73,13 @@ case class QIsabelleRoutes()(implicit cc: castor.Context,
       try {
         actual_action = hammer_actual_step(old_state, new_state_name, partial_hammer)
       } catch {
-        case e: Throwable => return ujson.Obj(
-          "state_string" -> ("error during hammer: " + e.toString()),
-          "done" -> false
-        )
+        case e: Throwable => {
+          println("error during hammer: " + e.toString())
+          return ujson.Obj(
+            "state_string" -> ("error during hammer: " + e.toString()),
+            "done" -> false
+          )
+        }
       }
       hammered = true
     }
@@ -86,7 +92,7 @@ case class QIsabelleRoutes()(implicit cc: castor.Context,
 
       var state_string: String = pisaos.getStateString(new_state)
       if (hammered) {
-        state_string = s"$action <hammer> ${state_string}"
+        state_string = s"(* $action *) $state_string"
       }
       var done: Boolean = (pisaos.getProofLevel(new_state) == 0)
       ujson.Obj(
@@ -94,10 +100,13 @@ case class QIsabelleRoutes()(implicit cc: castor.Context,
           "done" -> done
       )
     } catch {
-      case e: Throwable => return ujson.Obj(
-        "state_string" -> ("error during step: " + e.toString()),
-        "done" -> false
-      )
+      case e: Throwable => {
+        println(("error during step: " + e.toString()))
+        return ujson.Obj(
+          "state_string" -> ("error during step: " + e.toString()),
+          "done" -> false
+        )
+      }
     }
   }
 
@@ -137,7 +146,7 @@ case class QIsabelleRoutes()(implicit cc: castor.Context,
     // If found a sledgehammer step, execute it differently
     var raw_hammer_strings = List[String]()
     val actual_step: String =
-      try {
+      { // try {
         val total_result = hammer_method(old_state, 40000)
         // println(total_result)
         val success = total_result._1
@@ -147,13 +156,15 @@ case class QIsabelleRoutes()(implicit cc: castor.Context,
           // println("actual_step: " + tentative_step)
           tentative_step
         } else {
-          "error"
+          val s = "Hammer failed:" + total_result._2.mkString(" ||| ")
+          println(s)
+          throw new Exception(s)
         }
-      } catch {
-        case e: Exception => {
-          println("Exception while trying to run sledgehammer: " + e.getMessage)
-          e.getMessage
-        }
+      // } catch {
+      //   case e: Exception => {
+      //     println("Exception while trying to run sledgehammer: " + e.getMessage)
+      //     "error: " + e.getMessage
+      //   }
       }
     // println(actual_step)
     assert(actual_step.trim.nonEmpty)

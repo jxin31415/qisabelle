@@ -6,12 +6,19 @@ ENV SCALA_VERSION ${SCALA_VERSION:-2.13.10}
 
 USER root
 
+RUN apt-get update && \
+    apt-get install -y vim less curl wget rsync openssh-client git rpm unzip zip \
+                       apt-transport-https libfontconfig1 libgomp1 pwgen build-essential && \
+    apt-get clean
+
+# USER isabelle
+# RUN curl -fsL https://isabelle.in.tum.de/dist/Isabelle2022_linux.tar.gz > Isabelle.tar.gz
+# RUN tar xzf Isabelle.tar.gz && rm Isabelle.tar.gz && mv Isabelle2022 Isabelle
 RUN sed -i -e 's@ISABELLE_HOME_USER=.*@ISABELLE_HOME_USER="/isa"@g' Isabelle/etc/settings
+# RUN Isabelle/bin/isabelle build -b HOL
+# USER root
 RUN ln -sT /home/isabelle/Isabelle/bin/isabelle /usr/local/bin/isabelle
 
-RUN apt-get update && \
-    apt-get install -y curl wget apt-transport-https unzip zip vim git rpm && \
-    apt-get clean
 
 # Install Java 17 from Eclipse Adoptium.
 RUN mkdir -p /etc/apt/keyrings
@@ -45,6 +52,7 @@ COPY app/ app/
 RUN mill app.compile
 RUN mill app.assembly
 RUN mill show app.assembly
+RUN mill app.test.compile
 # RUN mill app.test
 
 # When running inside Docker, listen to all interfaces, Docker determines real access.

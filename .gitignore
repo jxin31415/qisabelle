@@ -1,0 +1,6 @@
+.vscode
+.metals
+*.log
+server/out
+server/mill
+server/.bloop

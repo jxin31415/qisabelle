@@ -64,17 +64,14 @@ class MiniPisaOS(
     var debug: Boolean = false
 ) {
   if (debug) println("Checkpoint 1")
-  val currentTheoryName: String =
-    path_to_file.split("/").last.replace(".thy", "")
+  val currentTheoryName: String = path_to_file.split("/").last.replace(".thy", "")
   val currentProjectName: String = {
     if (path_to_file.contains("afp")) {
       working_directory
         .slice(working_directory.indexOf("thys/") + 5, working_directory.length)
         .split("/")
         .head
-    } else if (
-      path_to_file.contains("Isabelle") && path_to_file.contains("/src/")
-    ) {
+    } else if (path_to_file.contains("Isabelle") && path_to_file.contains("/src/")) {
       // The theory file could be /Applications/Isabelle2021.app/Isabelle/src/HOL/Analysis/ex
       // The correct project name for it is HOL-Analysis-ex
       val relative_working_directory =
@@ -89,7 +86,7 @@ class MiniPisaOS(
       //      working_directory.split("/").last
       "HOL"
     } else {
-      "This is not supported at the moment"
+      throw new Exception("Unsupported...")
     }
   }
   if (debug) println("Checkpoint 2")
@@ -233,7 +230,7 @@ class MiniPisaOS(
         return text
       }
     }
-    "This is wrong!!!"
+    throw new Exception("Could not find theory dependencies.")
   }
   if (debug) println("Checkpoint 7")
   val starter_string: String = getStarterString.trim.replaceAll("\n", " ").trim
@@ -463,12 +460,14 @@ class MiniPisaOS(
   ): String = {
     var stateString: String = ""
     val continue = new Breaks
+    if (debug) println("step_to_transition_text first iteration")
     Breaks.breakable {
       for (
         (transition, text) <- parse_text(thy1, fileContent).force.retrieveNow
       ) {
-        if (debug) println("step_to_transition_text iteration")
         continue.breakable {
+          // println("transition=", transition)
+          // println("text=", text)
           if (text.trim.isEmpty) continue.break()
           val trimmed_text =
             text.trim.replaceAll("\n", " ").replaceAll(" +", " ")
@@ -479,13 +478,13 @@ class MiniPisaOS(
             }
             return stateString
           }
-          if (debug) println("step_to_transition_text transition")
           stateString = singleTransition(transition)
         }
       }
     }
     println("Did not find the text")
-    stateString
+    // stateString
+    "error: Did not find the text"
   }
 
   // Manage top level states with the internal map

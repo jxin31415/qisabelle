@@ -4,11 +4,11 @@ import io.undertow.Undertow
 import utest._
 
 object ExampleTests extends TestSuite {
-  def withServer[T](server: cask.main.Main)(f: String => T): T = {
+  def withServer[T](server_class: cask.main.Main)(f: String => T): T = {
     val port = sys.env("QISABELLE_PORT").toInt
     val server = Undertow.builder
       .addHttpListener(port, "localhost")
-      .setHandler(server.defaultHandler)
+      .setHandler(server_class.defaultHandler)
       .build
     server.start()
     val res =
