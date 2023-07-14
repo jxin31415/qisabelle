@@ -12,7 +12,7 @@ cd qisabelle
 docker build -f ServerDockerfile -t qisabelle-server .
 # Check isabelle building:
 docker run -it --rm --name qisabelle-server \
-    -p 127.0.0.1:17000:80 \
+    -p 127.0.0.1:17000:17000 \
     -v /home/mwrochna/projects/play/afp-2023-03-16:/afp \
     -v /home/mwrochna/projects/play/heap/:/isa \
     qisabelle-server \
@@ -20,7 +20,7 @@ docker run -it --rm --name qisabelle-server \
     build -b -j 20 -o timeout_scale=2 -D /afp/thys/Hello_World
 # Start the server:
 docker run -it --rm --name qisabelle-server \
-    -p 127.0.0.1:17000:80 \
+    -p 127.0.0.1:17000:17000 \
     -v /home/mwrochna/projects/play/afp-2023-03-16:/afp \
     -v /home/mwrochna/projects/play/heap/:/isa \
     qisabelle-server | tee server.log

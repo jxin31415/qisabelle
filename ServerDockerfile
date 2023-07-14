@@ -8,7 +8,7 @@ USER root
 
 RUN apt-get update && \
     apt-get install -y vim less curl wget rsync openssh-client git rpm unzip zip \
-                       apt-transport-https libfontconfig1 libgomp1 pwgen build-essential && \
+    apt-transport-https libfontconfig1 libgomp1 pwgen build-essential && \
     apt-get clean
 
 # USER isabelle
@@ -57,10 +57,10 @@ RUN mill server.test.compile
 
 # When running inside Docker, listen to all interfaces, Docker determines real access.
 ENV QISABELLE_HOST="0.0.0.0"
-ENV QISABELLE_PORT=80
-EXPOSE 80
+ENV QISABELLE_PORT=17000
+EXPOSE 17000
 
 RUN mill server.test
 
 ENTRYPOINT []
-CMD ["java", "-jar", "out/app/assembly.dest/out.jar"]
+CMD ["java", "-jar", "out/server/assembly.dest/out.jar"]
