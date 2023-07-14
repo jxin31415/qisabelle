@@ -9,6 +9,7 @@ from typing_extensions import Self
 
 class QIsabelleProxy:
     """Class for making calls to QIsabelle server."""
+
     def __init__(
         self,
         context_file: Path,
@@ -19,7 +20,6 @@ class QIsabelleProxy:
     ):
         self.port = port
         self.debug = debug
-        # TODO timeout 10 on initialize?
         print("Init..")
         r = self._post(
             "/initializePisaOS",
@@ -31,10 +31,10 @@ class QIsabelleProxy:
         )
         assert r.json() == "success", r.text
         print("Init done.")
-        # r.json()
 
     def _post(self, path: str, json_data: Optional[dict[str, Any]] = None) -> requests.Response:
-        print(f"Request to http://localhost:{self.port}{path} with data={json_data}")
+        if self.debug:
+            print(f"Request to http://localhost:{self.port}{path} with data={json_data}")
         if json_data is None:
             json_data = {}
         r = requests.post(f"http://localhost:{self.port}{path}", json=json_data)

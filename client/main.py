@@ -1,14 +1,13 @@
 import heapq
-import json
 import re
 import time
-from pathlib import Path
-from dataclasses import dataclass
-from typing import Iterable
 from collections import defaultdict
+from pathlib import Path
 
-from .model import Model, DummyGTModel, DummyHammerModel  # noqa: F401
+from .extractions import load_extractions
+from .model import DummyGTModel, DummyHammerModel, Model  # noqa: F401
 from .proxy import QIsabelleProxy
+from .test_cases import TestCase, load_test_cases
 
 ROOT_DIR = Path("/home/mwrochna/projects/play/")
 
@@ -16,9 +15,15 @@ MAX_RPC_MESSAGE_LENGTH = 100 * 1024 * 1024
 
 
 def main() -> None:
+    extractions_dir = ROOT_DIR / "afp_extractions"
+    print(f"Loading extractions from {ROOT_DIR / 'afp_extractions'}...")
+    extractions = load_extractions(extractions_dir, afp_dir=ROOT_DIR / "afp-2023-03-16")
+    print(f"Loaded {len(extractions)} extractions.")
+
     tests_dir = ROOT_DIR / "Portal-to-ISAbelle" / "universal_test_theorems"
+    print(f"Loading tests from {tests_dir}...")
     test_files = sorted(tests_dir.glob("quick*.json"), key=_numeric_sort_key)
-    tests = list(load_tests(test_files, afp_dir=ROOT_DIR / "afp-2023-03-16"))
+    tests = load_test_cases(test_files, afp_dir=ROOT_DIR / "afp-2023-03-16")
     print(f"Loaded {len(tests)} tests.")
 
     if True:
@@ -32,17 +37,10 @@ def main() -> None:
     )
 
 
-@dataclass
-class TestCase:
-    name: str  # Name of test, like "quick_test_name_599" or "test_name_2999".
-    thy_file: Path  # Path to theory .thy file, relative to "/afp/thys/".
-    lemma_statement: str
-
-
 def test_qisabelle_client() -> None:
     p = Path("/afp/thys/Real_Impl/Real_Impl_Auxiliary.thy")
     # p = Path("/afp/thys/Valuation/Valuation1.thy")
-    proxy = QIsabelleProxy(working_directory=p, context_file=p.parent, target="end")
+    proxy = QIsabelleProxy(working_directory=p.parent, context_file=p, target="end")
     print("-" * 50, "A")
     print(
         proxy.step_tls(
@@ -55,23 +53,6 @@ def test_qisabelle_client() -> None:
     print(proxy.step_tls("normalhammer", "test", "test1"))
     # print(proxy.step_tls('delhammer primes_infinite', 'test', 'test2'))
     # print(proxy.step_tls('delhammer primes_infinite,bigger_prime', 'test', 'test3'))
-
-
-def load_tests(test_files: Iterable[Path], afp_dir: Path) -> Iterable[TestCase]:
-    for p in test_files:
-        with open(p) as f:
-            o = json.load(f)
-        assert isinstance(o, list) and len(o) == 1
-        o = o[0]
-        assert isinstance(o, list) and len(o) == 2
-        thy_file, lemma_statement = o
-        assert isinstance(thy_file, str) and isinstance(lemma_statement, str)
-        thy_file = thy_file.split("/thys/", maxsplit=1)[1]
-        if not lemma_statement.startswith(("lemma ", "theorem ")):
-            print(f"Unusual test case lemma statement: {lemma_statement}")
-        if not (afp_dir / "thys" / thy_file).exists():
-            print(f"No such theory file: {thy_file}")
-        yield TestCase(name=p.stem, thy_file=Path(thy_file), lemma_statement=lemma_statement)
 
 
 def evaluate_model(model: Model, tests: list[TestCase], server_afp_dir: Path) -> None:
