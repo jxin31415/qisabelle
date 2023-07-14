@@ -44,21 +44,23 @@ RUN mkdir /qisabelle-server
 WORKDIR /qisabelle-server
 
 # Cache dependencies.
-COPY build.sc .
-RUN mill app.compile
+COPY ./.mill-version .
+COPY ./build.sc .
+RUN mill server.compile
 
 # Compile
-COPY app/ app/
-RUN mill app.compile
-RUN mill app.assembly
-RUN mill show app.assembly
-RUN mill app.test.compile
-# RUN mill app.test
+COPY server/ server/
+RUN mill server.compile
+RUN mill server.assembly
+RUN mill show server.assembly
+RUN mill server.test.compile
 
 # When running inside Docker, listen to all interfaces, Docker determines real access.
 ENV QISABELLE_HOST="0.0.0.0"
 ENV QISABELLE_PORT=80
 EXPOSE 80
+
+RUN mill server.test
 
 ENTRYPOINT []
 CMD ["java", "-jar", "out/app/assembly.dest/out.jar"]

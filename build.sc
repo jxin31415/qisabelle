@@ -1,6 +1,9 @@
 import mill._, scalalib._
 
-object app extends ScalaModule {
+// We put build.sc and hence ServerDockerfile in the root directory of the project,
+// otherwise VSCode doesn't find it.
+
+object server extends ScalaModule {
   def scalaVersion = "2.13.10"
 
   def scalacOptions: T[Seq[String]] = Seq("-deprecation", "-Xfatal-warnings")

@@ -1,4 +1,4 @@
-package app
+package server
 
 import util.control.Breaks
 import scala.collection.mutable.ListBuffer

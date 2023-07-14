@@ -5,7 +5,7 @@ import json
 import re
 import time
 from pathlib import Path
-from typing import List, Optional, Tuple, TypedDict, cast
+from typing import List, Optional, Tuple
 
 import requests
 from typing_extensions import Self

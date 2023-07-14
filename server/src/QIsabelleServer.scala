@@ -1,4 +1,4 @@
-package app
+package server
 
 import de.unruh.isabelle.pure.{Theory, ToplevelState}
 import de.unruh.isabelle.control.IsabelleMLException

@@ -9,7 +9,7 @@ QIsabelle only aims to give a simple, reproducible environment for evaluating ML
 ```bash
 git clone git@github.com:marcinwrochna/qisabelle.git
 cd qisabelle
-docker build server -t qisabelle-server
+docker build -f ServerDockerfile -t qisabelle-server .
 # Check isabelle building:
 docker run -it --rm --name qisabelle-server \
     -p 127.0.0.1:17000:80 \
@@ -29,3 +29,9 @@ python -um client.main | tee client.log
 ```
 (Note that we mount a directory like .isabelle/Isabelle2022 to /isa, but the internal files have absolute paths in them).
 On default settings, this should give 161 OK, 63 AssertionError (mostly 'Theory loader: undefined entry for theory'), 375 or 376 timeouts out of 600 tests.
+
+## In VS Code
+Because of a [bug](https://github.com/scalameta/metals/issues/5387) in Metals server 0.11.12,
+at the moment you need to use the pre-release version of the Scala Metals extension and open
+settings, find "metals server version" and set it to the
+[latest snaphot version](https://scalameta.org/metals/docs/#latest-metals-server-versions).
