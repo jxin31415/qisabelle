@@ -28,4 +28,3 @@ object ExampleTests extends TestSuite {
     }
   }
 }
-

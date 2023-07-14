@@ -2,13 +2,7 @@ package server
 
 import util.control.Breaks
 import scala.collection.mutable.ListBuffer
-import scala.concurrent.{
-  Await,
-  ExecutionContext,
-  Future,
-  TimeoutException,
-  blocking
-}
+import scala.concurrent.{Await, ExecutionContext, Future, TimeoutException, blocking}
 import scala.concurrent.duration.Duration
 import scala.util.{Success, Failure}
 import sys.process._
@@ -26,31 +20,24 @@ import de.unruh.isabelle.mlvalue.{
   MLValue,
   MLValueWrapper
 }
-import de.unruh.isabelle.mlvalue.MLValue.{
-  compileFunction,
-  compileFunction0,
-  compileValue
-}
-import de.unruh.isabelle.pure.{
-  Context,
-  Position,
-  Theory,
-  TheoryHeader,
-  ToplevelState
-}
+import de.unruh.isabelle.mlvalue.MLValue.{compileFunction, compileFunction0, compileValue}
+import de.unruh.isabelle.pure.{Context, Position, Theory, TheoryHeader, ToplevelState}
 
 // Implicits
 import de.unruh.isabelle.mlvalue.Implicits._
 import de.unruh.isabelle.pure.Implicits._
 import de.unruh.isabelle.control.IsabelleMLException
 
-object Transition extends AdHocConverter("Toplevel.transition")
-object ProofState extends AdHocConverter("Proof.state")
+object Transition   extends AdHocConverter("Toplevel.transition")
+object ProofState   extends AdHocConverter("Proof.state")
 object RuntimeError extends AdHocConverter("Runtime.error")
-object Pretty extends AdHocConverter("Pretty.T")
+object Pretty       extends AdHocConverter("Pretty.T")
 object ProofContext extends AdHocConverter("Proof_Context.T")
 
-case class TheoryText(text: String, path: Path)(implicit isabelle: Isabelle, ec: scala.concurrent.ExecutionContext) {
+case class TheoryText(text: String, path: Path)(implicit
+    isabelle: Isabelle,
+    ec: scala.concurrent.ExecutionContext
+) {
   // val text = text
   // val path = path
   val position: Position = Position.none
@@ -64,7 +51,8 @@ class MiniPisaOS(
     var debug: Boolean = false
 ) {
   if (debug) println("Checkpoint 1")
-  val currentTheoryName: String = path_to_file.split("/").last.replace(".thy", "")
+  val currentTheoryName: String =
+    path_to_file.split("/").last.replace(".thy", "")
   val currentProjectName: String = {
     if (path_to_file.contains("afp")) {
       working_directory
@@ -98,9 +86,7 @@ class MiniPisaOS(
           working_directory.slice(-1, working_directory.indexOf("thys/") + 4)
         )
       )
-    } else if (
-      path_to_file.contains("Isabelle") && path_to_file.contains("/src/")
-    ) {
+    } else if (path_to_file.contains("Isabelle") && path_to_file.contains("/src/")) {
       val src_index: Int = working_directory.indexOf("/src/") + 5
       val session_root_path_string: String =
         working_directory.slice(0, src_index) +
@@ -117,6 +103,7 @@ class MiniPisaOS(
   }
   if (debug) println("Checkpoint 3")
   // Prepare setup config and the implicit Isabelle context
+  println("path_to_isa_bin: " + path_to_isa_bin)
   val setup: Isabelle.Setup = Isabelle.Setup(
     isabelleHome = Path.of(path_to_isa_bin),
     sessionRoots = sessionRoots,
@@ -125,7 +112,7 @@ class MiniPisaOS(
     workingDirectory = Path.of(working_directory),
     build = false
   )
-  implicit val isabelle: Isabelle = new Isabelle(setup)
+  implicit val isabelle: Isabelle   = new Isabelle(setup)
   implicit val ec: ExecutionContext = ExecutionContext.global
   if (debug) println("Checkpoint 4 (the slow one)")
 
@@ -134,8 +121,7 @@ class MiniPisaOS(
     compileFunction0[ToplevelState]("Toplevel.init_toplevel")
   val proof_level: MLFunction[ToplevelState, Int] =
     compileFunction[ToplevelState, Int]("Toplevel.level")
-  val command_exception
-      : MLFunction3[Boolean, Transition.T, ToplevelState, ToplevelState] =
+  val command_exception: MLFunction3[Boolean, Transition.T, ToplevelState, ToplevelState] =
     compileFunction[Boolean, Transition.T, ToplevelState, ToplevelState](
       "fn (int, tr, st) => Toplevel.command_exception int tr st"
     )
@@ -171,9 +157,13 @@ class MiniPisaOS(
 
   if (debug) println("Checkpoint 4.5")
   val header_read: MLFunction2[String, Position, TheoryHeader] =
-    compileFunction[String, Position, TheoryHeader]("fn (text, pos) => Thy_Header.read pos text")
+    compileFunction[String, Position, TheoryHeader](
+      "fn (text, pos) => Thy_Header.read pos text"
+    )
   val begin_theory =
-    compileFunction[Path, TheoryHeader, List[Theory], Theory]("fn (path, header, parents) => Resources.begin_theory path header parents")
+    compileFunction[Path, TheoryHeader, List[Theory], Theory](
+      "fn (path, header, parents) => Resources.begin_theory path header parents"
+    )
 
   def beginTheory(
       source: TheoryText
@@ -210,19 +200,21 @@ class MiniPisaOS(
       println(registers.toList)
     }
 
-    begin_theory(source.path, header, registers.toList.map(Theory.apply)).force.retrieveNow
+    begin_theory(
+      source.path,
+      header,
+      registers.toList.map(Theory.apply)
+    ).force.retrieveNow
   }
   if (debug) println("Checkpoint 5")
 
   // Find out about the starter string
   private val fileContent: String = Files.readString(Path.of(path_to_file))
-  val fileContentCopy: String = fileContent
+  val fileContentCopy: String     = fileContent
   if (debug) println("Checkpoint 6")
   private def getStarterString: String = {
     val decoyThy: Theory = Theory("Main")
-    for (
-      (transition, text) <- parse_text(decoyThy, fileContent).force.retrieveNow
-    ) {
+    for ((transition, text) <- parse_text(decoyThy, fileContent).force.retrieveNow) {
       if (
         text.contains("theory") && text.contains(currentTheoryName) && text
           .contains("begin")
@@ -263,8 +255,7 @@ class MiniPisaOS(
   var available_imports_buffer: ListBuffer[String] = new ListBuffer[String]
   for (file_name <- available_files) {
     if (file_name.getName().endsWith(".thy")) {
-      available_imports_buffer =
-        available_imports_buffer += file_name.getName().split(".thy")(0)
+      available_imports_buffer = available_imports_buffer += file_name.getName().split(".thy")(0)
     }
   }
   var available_imports: Set[String] = available_imports_buffer.toSet
@@ -284,7 +275,8 @@ class MiniPisaOS(
   }
 
   var top_level_state_map: Map[String, MLValue[ToplevelState]] = Map()
-  val theoryStarter: TheoryText = TheoryText(starter_string, setup.workingDirectory.resolve(""))
+  val theoryStarter: TheoryText =
+    TheoryText(starter_string, setup.workingDirectory.resolve(""))
   if (debug) println("Checkpoint 9")
   var thy1: Theory = beginTheory(theoryStarter)
   if (debug) println("Checkpoint 9_6")
@@ -294,9 +286,12 @@ class MiniPisaOS(
   // setting up Sledgehammer
   // val thy_for_sledgehammer: Theory = Theory("HOL.List")
   val thy_for_sledgehammer = thy1
-  val Sledgehammer: String = thy_for_sledgehammer.importMLStructureNow("Sledgehammer")
-  val Sledgehammer_Commands: String = thy_for_sledgehammer.importMLStructureNow("Sledgehammer_Commands")
-  val Sledgehammer_Prover: String = thy_for_sledgehammer.importMLStructureNow("Sledgehammer_Prover")
+  val Sledgehammer: String =
+    thy_for_sledgehammer.importMLStructureNow("Sledgehammer")
+  val Sledgehammer_Commands: String =
+    thy_for_sledgehammer.importMLStructureNow("Sledgehammer_Commands")
+  val Sledgehammer_Prover: String =
+    thy_for_sledgehammer.importMLStructureNow("Sledgehammer_Prover")
 
   // prove_with_Sledgehammer is mostly identical to check_with_Sledgehammer except for that when the returned Boolean is true, it will
   // also return a non-empty list of Strings, each of which contains executable commands to close the top subgoal. We might need to chop part of
@@ -398,8 +393,8 @@ class MiniPisaOS(
     if (debug) println("Begin step")
     // Normal isabelle business
     var tls_to_return: ToplevelState = clone_tls_scala(top_level_state)
-    var stateString: String = ""
-    val continue = new Breaks
+    var stateString: String          = ""
+    val continue                     = new Breaks
     if (debug) println("Starting to step")
     val f_st = Future.apply {
       blocking {
@@ -459,12 +454,10 @@ class MiniPisaOS(
       after: Boolean = true
   ): String = {
     var stateString: String = ""
-    val continue = new Breaks
+    val continue            = new Breaks
     if (debug) println("step_to_transition_text first iteration")
     Breaks.breakable {
-      for (
-        (transition, text) <- parse_text(thy1, fileContent).force.retrieveNow
-      ) {
+      for ((transition, text) <- parse_text(thy1, fileContent).force.retrieveNow) {
         continue.breakable {
           // println("transition=", transition)
           // println("text=", text)
