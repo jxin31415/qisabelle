@@ -20,24 +20,24 @@ case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) exte
     println("initializePisaOS 1: new PisaOS")
     try {
       pisaos = new MiniPisaOS(
-        path_to_isa_bin = "/home/isabelle/Isabelle/",
-        working_directory = workingDir,
-        path_to_file = theoryPath,
+        path_to_isa_bin = os.Path("/home/isabelle/Isabelle/"),
+        working_dir = os.Path(workingDir),
+        path_to_file = os.Path(theoryPath),
         debug = true
       )
     } catch {
       case e: Throwable =>
-        return ("error during init of PisaOS (probably in begin_theory): " + e.toString())
+        return ("Error during init of PisaOS (probably in begin_theory): " + e.toString())
     }
     println("initializePisaOS 2: step_to_transition_text")
     // pisaos.step_to_transition_text("end", after=false)
-    val s = pisaos.step_to_transition_text(target, after = false)
+    val s = pisaos.step_to_transition_text(Some(target), after = false)
     println("state=", s)
-    if (s.startsWith("error")) {
+    if (s.toLowerCase().startsWith("error")) {
       return s
     }
     println("initializePisaOS 3: top_level_state_map +=")
-    pisaos.top_level_state_map += ("default" -> pisaos.copy_tls)
+    // pisaos.top_level_state_map += ("default" -> pisaos.copy_tls)
     println("initializePisaOS 4: done.")
     "success"
   }
@@ -56,33 +56,33 @@ case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) exte
     var actual_action: String    = action
     var hammered: Boolean        = false
 
-    if (action.startsWith("normalhammer")) {
-      val s: String = action.split("normalhammer").drop(1).mkString("").trim
-      val add_names: List[String] = {
-        if (s contains "<add>") {
-          s.split("<add>")(1).split(",").toList
-        } else List[String]()
-      }
-      val del_names: List[String] = {
-        if (s contains "<del>") {
-          s.split("<del>")(1).split(",").toList
-        } else List[String]()
-      }
-      val partial_hammer = (state: ToplevelState, timeout: Int) =>
-        pisaos.normal_with_hammer(state, add_names, del_names, timeout)
-      try {
-        actual_action = hammer_actual_step(old_state, new_state_name, partial_hammer)
-      } catch {
-        case e: Throwable => {
-          println("error during hammer: " + e.toString())
-          return ujson.Obj(
-            "state_string" -> ("error during hammer: " + e.toString()),
-            "done"         -> false
-          )
-        }
-      }
-      hammered = true
-    }
+    // if (action.startsWith("normalhammer")) {
+    //   val s: String = action.split("normalhammer").drop(1).mkString("").trim
+    //   val add_names: List[String] = {
+    //     if (s contains "<add>") {
+    //       s.split("<add>")(1).split(",").toList
+    //     } else List[String]()
+    //   }
+    //   val del_names: List[String] = {
+    //     if (s contains "<del>") {
+    //       s.split("<del>")(1).split(",").toList
+    //     } else List[String]()
+    //   }
+    //   val partial_hammer = (state: ToplevelState, timeout: Int) =>
+    //     pisaos.normal_with_hammer(state, add_names, del_names, timeout)
+    //   try {
+    //     actual_action = hammer_actual_step(old_state, new_state_name, partial_hammer)
+    //   } catch {
+    //     case e: Throwable => {
+    //       println("Error during hammer: " + e.toString())
+    //       return ujson.Obj(
+    //         "state_string" -> ("Error during hammer: " + e.toString()),
+    //         "done"         -> false
+    //       )
+    //     }
+    //   }
+    //   hammered = true
+    // }
 
     try {
       val new_state: ToplevelState = pisaos.step(actual_action, old_state, TIMEOUT)
@@ -101,9 +101,9 @@ case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) exte
       )
     } catch {
       case e: Throwable => {
-        println(("error during step: " + e.toString()))
+        println(("Error during step: " + e.toString()))
         return ujson.Obj(
-          "state_string" -> ("error during step: " + e.toString()),
+          "state_string" -> ("Error during step: " + e.toString()),
           "done"         -> false
         )
       }
@@ -161,7 +161,7 @@ case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) exte
       // } catch {
       //   case e: Exception => {
       //     println("Exception while trying to run sledgehammer: " + e.getMessage)
-      //     "error: " + e.getMessage
+      //     "Error: " + e.getMessage
       //   }
     }
     // println(actual_step)
@@ -194,8 +194,8 @@ case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) exte
 object QISabelleServer extends cask.Main {
   val allRoutes                   = Seq(QIsabelleRoutes())
   override def debugMode: Boolean = true
-  override def host: String       = sys.env("QISABELLE_HOST")
-  override def port: Int          = sys.env("QISABELLE_PORT").toInt
+  override def host: String       = sys.env.getOrElse("QISABELLE_HOST", "localhost")
+  override def port: Int          = sys.env.getOrElse("QISABELLE_PORT", "17000").toInt
   override def main(args: Array[String]): Unit = {
     println(s"QIsabelleServer starting on ${host}:${port} ...")
     super.main(args)

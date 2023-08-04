@@ -11,18 +11,18 @@ git clone git@github.com:marcinwrochna/qisabelle.git
 cd qisabelle
 docker build -f ServerDockerfile -t qisabelle-server .
 # Check isabelle building:
-docker run -it --rm --name qisabelle-server \
+docker run -it --rm \
     -p 127.0.0.1:17000:17000 \
-    -v /home/mwrochna/projects/play/afp-2023-03-16:/afp \
+    -v /home/mwrochna/projects/play/afp-2023-03-16:/afp:ro \
     -v /home/mwrochna/projects/play/heap/:/isa \
     qisabelle-server \
     /home/isabelle/Isabelle/bin/isabelle \
     build -b -j 20 -o timeout_scale=2 -D /afp/thys/Hello_World
 # Start the server:
-docker run -it --rm --name qisabelle-server \
+docker run -it --rm \
     -p 127.0.0.1:17000:17000 \
-    -v /home/mwrochna/projects/play/afp-2023-03-16:/afp \
-    -v /home/mwrochna/projects/play/heap/:/isa \
+    -v /home/mwrochna/projects/play/afp-2023-03-16:/afp:ro \
+    -v /home/mwrochna/projects/play/heap/:/isa:ro \
     qisabelle-server | tee server.log
 # In another tab, start the client:
 python -um client.main | tee client.log

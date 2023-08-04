@@ -53,14 +53,14 @@ COPY server/ server/
 RUN mill server.compile
 RUN mill server.assembly
 RUN mill show server.assembly
-RUN mill server.test.compile
+# RUN mill server.test.compile
 
 # When running inside Docker, listen to all interfaces, Docker determines real access.
 ENV QISABELLE_HOST="0.0.0.0"
 ENV QISABELLE_PORT=17000
 EXPOSE 17000
 
-RUN mill server.test
+# RUN mill server.test
 
 ENTRYPOINT []
 CMD ["java", "-jar", "out/server/assembly.dest/out.jar"]

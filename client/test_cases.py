@@ -24,7 +24,7 @@ def _load_test_case(test_file: Path, afp_dir: Path) -> TestCase:
     thy_file, lemma_statement = o
     assert isinstance(thy_file, str) and isinstance(lemma_statement, str)
     thy_file = thy_file.split("/thys/", maxsplit=1)[1]
-    if not lemma_statement.startswith(("lemma ", "theorem ", "lemma[simp] ")):
+    if not lemma_statement.startswith(("lemma ", "theorem ", "lemma[")):
         print(f"Unusual test case lemma statement: {lemma_statement}")
     if not (afp_dir / "thys" / thy_file).exists():
         print(f"No such theory file: {thy_file}")

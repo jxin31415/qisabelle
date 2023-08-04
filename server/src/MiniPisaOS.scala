@@ -44,135 +44,174 @@ case class TheoryText(text: String, path: Path)(implicit
 }
 
 class MiniPisaOS(
-    var path_to_isa_bin: String,
-    var path_to_file: String,
-    var working_directory: String,
+    var path_to_isa_bin: os.Path, // Path to the Isabelle distribution directory (should contain bin/isabelle).
+    var path_to_file: os.Path,
+    var working_dir: os.Path,
     var use_Sledgehammer: Boolean = false,
     var debug: Boolean = false
 ) {
-  if (debug) println("Checkpoint 1")
-  val currentTheoryName: String =
-    path_to_file.split("/").last.replace(".thy", "")
-  val currentProjectName: String = {
-    if (path_to_file.contains("afp")) {
-      working_directory
-        .slice(working_directory.indexOf("thys/") + 5, working_directory.length)
-        .split("/")
-        .head
-    } else if (path_to_file.contains("Isabelle") && path_to_file.contains("/src/")) {
-      // The theory file could be /Applications/Isabelle2021.app/Isabelle/src/HOL/Analysis/ex
-      // The correct project name for it is HOL-Analysis-ex
-      val relative_working_directory =
-        working_directory
-          .slice(
-            working_directory.indexOf("/src/") + 5,
-            working_directory.length
-          )
-          .split("/")
-      relative_working_directory.mkString("-")
-    } else if (path_to_file.contains("miniF2F")) {
-      //      working_directory.split("/").last
-      "HOL"
+  // Folder name of the current project.
+  val sessionName: String = {
+    if (path_to_file.toString().contains("afp")) {
+      working_dir.getSegment(working_dir.segments.indexOf("thys") + 1)
+    } else if (
+      path_to_file.toString().contains("Isabelle") && path_to_file.segments.contains("src")
+    ) {
+      working_dir.segments.drop(working_dir.segments.indexOf("thys") + 1).mkString("-")
+    } else if (path_to_file.toString().contains("miniF2F")) {
+      "HOL" // working_directory.last
     } else {
-      throw new Exception("Unsupported...")
+      throw new Exception("Unsupported file path:" + path_to_file.toString())
     }
   }
-  if (debug) println("Checkpoint 2")
+
   // Figure out the session roots information and import the correct libraries
-  val sessionRoots: Seq[Path] = {
-    if (path_to_file.contains("afp")) {
-      Seq(
-        Path.of(
-          working_directory.slice(-1, working_directory.indexOf("thys/") + 4)
-        )
-      )
-    } else if (path_to_file.contains("Isabelle") && path_to_file.contains("/src/")) {
-      val src_index: Int = working_directory.indexOf("/src/") + 5
-      val session_root_path_string: String =
-        working_directory.slice(0, src_index) +
-          working_directory
-            .slice(src_index, working_directory.length)
-            .split("/")
-            .head
-      Seq(Path.of(session_root_path_string))
-    } else if (path_to_file.contains("miniF2F")) {
+  def getPathPrefix(path: os.Path, n_segments: Int): os.Path = {
+    os.Path("/" + path.segments.take(n_segments).mkString("/"))
+  }
+  val sessionRoots: Seq[os.Path] = {
+    if (path_to_file.toString().contains("afp")) {
+      Seq(getPathPrefix(working_dir, working_dir.segments.indexOf("thys") + 1))
+    } else if (
+      path_to_file.toString().contains("Isabelle") && path_to_file.segments.contains("src")
+    ) {
+      Seq(getPathPrefix(working_dir, working_dir.segments.indexOf("src") + 2))
+    } else if (path_to_file.toString().contains("miniF2F")) {
       Seq()
     } else {
-      Seq(Path.of("This is not supported at the moment"))
+      throw new Exception("Unsupported file path:" + path_to_file.toString())
     }
   }
-  if (debug) println("Checkpoint 3")
-  // Prepare setup config and the implicit Isabelle context
-  println("path_to_isa_bin: " + path_to_isa_bin)
+  if (debug) {
+    println("sessionName: " + sessionName)
+    println("sessionRoots: " + sessionRoots)
+    println("path_to_isa_bin: " + path_to_isa_bin)
+    println("working_dir: " + working_dir)
+  }
+
+  // Start the actual Isabelle process.
   val setup: Isabelle.Setup = Isabelle.Setup(
-    isabelleHome = Path.of(path_to_isa_bin),
-    sessionRoots = sessionRoots,
+    isabelleHome = path_to_isa_bin.toNIO,
+    // Additional session directories in which Isabelle will search for sessions;
+    // these are passed as '-d' options to the 'isabelle build' process:
+    sessionRoots = sessionRoots.map(_.toNIO),
+    // Use default '.isabelle' dir to store heaps in:
     userDir = None,
-    logic = currentProjectName,
-    workingDirectory = Path.of(working_directory),
+    // Session whose heap image (a state cache) we load in Isabelle.
+    // If I just use 'HOL', Resources.begin_theory takes a long time.
+    // Loading a heap after the process started seems to be impossible,
+    // see Isabelle/src/Pure/ML/ml_process.scala.
+    logic = sessionName,
+    workingDirectory = working_dir.toNIO,
     build = false
   )
   implicit val isabelle: Isabelle   = new Isabelle(setup)
   implicit val ec: ExecutionContext = ExecutionContext.global
-  if (debug) println("Checkpoint 4 (the slow one)")
+  if (debug) println("Isabelle constructed.")
 
   // Compile useful ML functions
-  val init_toplevel: MLFunction0[ToplevelState] =
-    compileFunction0[ToplevelState]("Toplevel.init_toplevel")
-  val proof_level: MLFunction[ToplevelState, Int] =
-    compileFunction[ToplevelState, Int]("Toplevel.level")
-  val command_exception: MLFunction3[Boolean, Transition.T, ToplevelState, ToplevelState] =
-    compileFunction[Boolean, Transition.T, ToplevelState, ToplevelState](
-      "fn (int, tr, st) => Toplevel.command_exception int tr st"
+  val init_toplevel = compileFunction0[ToplevelState]("Toplevel.init_toplevel")
+  if (debug) println("Checkpoint 4.1")
+  val proof_level = compileFunction[ToplevelState, Int]("Toplevel.level")
+  if (debug) println("Checkpoint 4.2 (the slow one)")
+  // We could maybe speed that up by putting it in the heap?
+  val command_exception = compileFunction[Boolean, Transition.T, ToplevelState, ToplevelState](
+    "fn (int, tr, st) => Toplevel.command_exception int tr st"
+  )
+  if (debug) println("Checkpoint 4.3")
+  val command_exception_with_timeout =
+    compileFunction[Int, Boolean, Transition.T, ToplevelState, ToplevelState](
+      """fn (timeout, int, tr, st) =>
+        |  Timeout.apply (Time.fromMilliseconds timeout) Toplevel.command_exception int tr st
+      """.stripMargin
     )
-  val command_exception_with_10s_timeout
-      : MLFunction3[Boolean, Transition.T, ToplevelState, ToplevelState] =
-    compileFunction[Boolean, Transition.T, ToplevelState, ToplevelState](
-      """fn (int, tr, st) => let
-        |  fun go_run (a, b, c) = Toplevel.command_exception a b c
-        |  in Timeout.apply (Time.fromSeconds 10) go_run (int, tr, st) end""".stripMargin
-    )
-  val command_exception_with_30s_timeout
-      : MLFunction3[Boolean, Transition.T, ToplevelState, ToplevelState] =
-    compileFunction[Boolean, Transition.T, ToplevelState, ToplevelState](
-      """fn (int, tr, st) => let
-        |  fun go_run (a, b, c) = Toplevel.command_exception a b c
-        |  in Timeout.apply (Time.fromSeconds 30) go_run (int, tr, st) end""".stripMargin
-    )
+  if (debug) println("Checkpoint 4.4")
 
-  val parse_text: MLFunction2[Theory, String, List[(Transition.T, String)]] =
-    compileFunction[Theory, String, List[(Transition.T, String)]]("""fn (thy, text) => let
-        |  val transitions = Outer_Syntax.parse_text thy (K thy) Position.start text
-        |  fun addtext symbols [tr] =
-        |        [(tr, implode symbols)]
-        |    | addtext _ [] = []
-        |    | addtext symbols (tr::nextTr::trs) = let
-        |        val (this,rest) = Library.chop (Position.distance_of (Toplevel.pos_of tr, Toplevel.pos_of nextTr) |> Option.valOf) symbols
-        |        in (tr, implode this) :: addtext rest (nextTr::trs) end
-        |  in addtext (Symbol.explode text) transitions end""".stripMargin)
-  val toplevel_string_of_state: MLFunction[ToplevelState, String] =
-    compileFunction[ToplevelState, String](
-      "fn (s) => YXML.content_of (Toplevel.string_of_state s)"
-    )
+  // Calls Outer_Syntax.parse_text and pairs each transition with the text that it corresponds to.
+  // Args:
+  // - thy: theory to use as context? or to work in adding stuff to it?
+  // - text: the text to parse
+  // Returns: list of pairs (transition, text)
+  val parse_text = compileFunction[Theory, String, List[(Transition.T, String)]](
+    """fn (thy, text) => let
+      |  val transitions = Outer_Syntax.parse_text thy (K thy) Position.start text
+      |  fun addtext symbols [tr]              = [(tr, implode symbols)]
+      |    | addtext _       []                = []
+      |    | addtext symbols (tr::nextTr::trs) = let
+      |        val (this,rest) = Library.chop (Position.distance_of (Toplevel.pos_of tr, Toplevel.pos_of nextTr) |> Option.valOf) symbols
+      |        in (tr, implode this) :: addtext rest (nextTr::trs) end
+      |  in addtext (Symbol.explode text) transitions end
+    """.stripMargin
+  )
 
-  if (debug) println("Checkpoint 4.5")
-  val header_read: MLFunction2[String, Position, TheoryHeader] =
-    compileFunction[String, Position, TheoryHeader](
-      "fn (text, pos) => Thy_Header.read pos text"
-    )
-  val begin_theory =
-    compileFunction[Path, TheoryHeader, List[Theory], Theory](
-      "fn (path, header, parents) => Resources.begin_theory path header parents"
-    )
+  val get_transition_name     = compileFunction[Transition.T, String]("Toplevel.name_of")
+  val is_transition_init      = compileFunction[Transition.T, Boolean]("Toplevel.is_init")
+  val is_transition_malformed = compileFunction[Transition.T, Boolean]("Toplevel.is_malformed")
+  val is_end_theory           = compileFunction[ToplevelState, Boolean]("Toplevel.is_end_theory")
+  val toplevel_string_of_state = compileFunction[ToplevelState, String](
+    "fn (s) => YXML.content_of (Toplevel.string_of_state s)"
+  )
+  val header_read = compileFunction[String, Position, TheoryHeader](
+    "fn (text, pos) => Thy_Header.read pos text"
+  )
+  val begin_theory = compileFunction[Path, TheoryHeader, List[Theory], Theory](
+    "fn (path, header, parents) => Resources.begin_theory path header parents"
+  )
 
-  def beginTheory(
-      source: TheoryText
-  )(implicit isabelle: Isabelle, ec: ExecutionContext): Theory = {
-    if (debug) println("Checkpoint 9_1")
+  // Find out about the starter string
+  private val fileContent: String = Files.readString(path_to_file.toNIO)
+  if (debug) println("fileContent length: " + fileContent.length)
+
+  private def getStarterString: String = {
+    val decoyThy: Theory = Theory("Main")
+    for ((transition, text) <- parse_text(decoyThy, fileContent).force.retrieveNow) {
+      if (
+        text.contains("theory") && text.contains(path_to_file.baseName) && text.contains("begin")
+      ) {
+        return text
+      }
+    }
+    throw new Exception("Could not find theory dependencies.")
+  }
+  val starter_string: String = getStarterString.trim.replaceAll("\n", " ").trim
+  if (debug) println("starter_string: " + starter_string)
+
+  // Recursively find all theories in a directory (names of .thy files, without the extension).
+  val available_imports: Set[String] =
+    os.walk(working_dir).filter(_.ext == "thy").map(_.last).map(_.stripSuffix(".thy")).toSet
+  if (debug) println("available_imports: " + available_imports)
+
+  def sanitiseInDirectoryName(fileName: String): String = {
+    fileName.replace("\"", "").split("/").last.split(".thy").head
+  }
+  val theoryNames: List[String] = starter_string
+    .split("imports")(1)
+    .split("begin")(0)
+    .split(" ")
+    .map(_.trim)
+    .filter(_.nonEmpty)
+    .toList
+  var importMap = Map[String, String]()
+  for (theory_name <- theoryNames) {
+    val sanitisedName = sanitiseInDirectoryName(theory_name)
+    println("theory_name=" + theory_name + " sanitisedName=" + sanitisedName)
+    if (available_imports(sanitisedName)) {
+      importMap += (theory_name.replace("\"", "") -> sanitisedName)
+    } else {
+      println("Warning: theory " + theory_name + " not found.")
+    }
+  }
+
+  var top_level_state_map: Map[String, MLValue[ToplevelState]] = Map()
+  println("wd=" + setup.workingDirectory.resolve(""))
+  val theoryStarter: TheoryText = TheoryText(starter_string, setup.workingDirectory.resolve(""))
+  if (debug) println("Checkpoint 9")
+
+  def beginTheory(source: TheoryText)(implicit isabelle: Isabelle, ec: ExecutionContext): Theory = {
     val header = header_read(source.text, source.position).retrieveNow
-    if (debug) println("Checkpoint 9_3")
+    if (debug) println("beginTheory header: " + header)
     val registers: ListBuffer[String] = new ListBuffer[String]()
-    if (debug) println("Checkpoint 9_4")
+    if (debug) println("beginTheory registers: " + registers)
     for (theory_name <- header.imports) {
       // var treated_name = theory_name.trim
       // if (treated_name.startsWith("..")) {
@@ -189,100 +228,30 @@ class MiniPisaOS(
       //   registers += imported_dir
       // } else
       if (importMap.contains(theory_name)) {
-        registers += s"${currentProjectName}.${importMap(theory_name)}"
-      } else registers += theory_name
+        registers += s"${sessionName}.${importMap(theory_name)}"
+      } else {
+        registers += theory_name
+      }
     }
-    if (debug) println("Checkpoint 9_5")
 
     if (debug) {
-      println(source.path)
-      println(header)
-      println(registers.toList)
+      println("source.path=" + source.path)
+      println("header=" + header)
+      println("registers=" + registers.toList)
+      println("begin theory...")
     }
 
-    begin_theory(
-      source.path,
-      header,
-      registers.toList.map(Theory.apply)
-    ).force.retrieveNow
+    val thy =
+      begin_theory(source.path, header, registers.toList.map(Theory.apply)).force.retrieveNow
+    if (debug) println("began theory.")
+    thy
   }
-  if (debug) println("Checkpoint 5")
-
-  // Find out about the starter string
-  private val fileContent: String = Files.readString(Path.of(path_to_file))
-  val fileContentCopy: String     = fileContent
-  if (debug) println("Checkpoint 6")
-  private def getStarterString: String = {
-    val decoyThy: Theory = Theory("Main")
-    for ((transition, text) <- parse_text(decoyThy, fileContent).force.retrieveNow) {
-      if (
-        text.contains("theory") && text.contains(currentTheoryName) && text
-          .contains("begin")
-      ) {
-        return text
-      }
-    }
-    throw new Exception("Could not find theory dependencies.")
-  }
-  if (debug) println("Checkpoint 7")
-  val starter_string: String = getStarterString.trim.replaceAll("\n", " ").trim
-
-  // Find out what to import from the current directory
-  def getListOfTheoryFiles(dir: File): List[File] = {
-    if (dir.exists && dir.isDirectory) {
-      var listOfFilesBuffer: ListBuffer[File] = new ListBuffer[File]
-      for (f <- dir.listFiles()) {
-        if (f.isDirectory) {
-          listOfFilesBuffer = listOfFilesBuffer ++ getListOfTheoryFiles(f)
-        } else if (f.toString.endsWith(".thy")) {
-          listOfFilesBuffer += f
-        }
-      }
-      listOfFilesBuffer.toList
-    } else {
-      List[File]()
-    }
-  }
-
-  def sanitiseInDirectoryName(fileName: String): String = {
-    fileName.replace("\"", "").split("/").last.split(".thy").head
-  }
-  if (debug) println("Checkpoint 8")
-  // Figure out what theories to import
-  val available_files: List[File] = getListOfTheoryFiles(
-    new File(working_directory)
-  )
-  var available_imports_buffer: ListBuffer[String] = new ListBuffer[String]
-  for (file_name <- available_files) {
-    if (file_name.getName().endsWith(".thy")) {
-      available_imports_buffer = available_imports_buffer += file_name.getName().split(".thy")(0)
-    }
-  }
-  var available_imports: Set[String] = available_imports_buffer.toSet
-  val theoryNames: List[String] = starter_string
-    .split("imports")(1)
-    .split("begin")(0)
-    .split(" ")
-    .map(_.trim)
-    .filter(_.nonEmpty)
-    .toList
-  var importMap: Map[String, String] = Map()
-  for (theory_name <- theoryNames) {
-    val sanitisedName = sanitiseInDirectoryName(theory_name)
-    if (available_imports(sanitisedName)) {
-      importMap += (theory_name.replace("\"", "") -> sanitisedName)
-    }
-  }
-
-  var top_level_state_map: Map[String, MLValue[ToplevelState]] = Map()
-  val theoryStarter: TheoryText =
-    TheoryText(starter_string, setup.workingDirectory.resolve(""))
-  if (debug) println("Checkpoint 9")
   var thy1: Theory = beginTheory(theoryStarter)
   if (debug) println("Checkpoint 9_6")
   thy1.await
   if (debug) println("Checkpoint 10")
 
+  /*
   // setting up Sledgehammer
   // val thy_for_sledgehammer: Theory = Theory("HOL.List")
   val thy_for_sledgehammer = thy1
@@ -293,16 +262,13 @@ class MiniPisaOS(
   val Sledgehammer_Prover: String =
     thy_for_sledgehammer.importMLStructureNow("Sledgehammer_Prover")
 
+
   // prove_with_Sledgehammer is mostly identical to check_with_Sledgehammer except for that when the returned Boolean is true, it will
   // also return a non-empty list of Strings, each of which contains executable commands to close the top subgoal. We might need to chop part of
   // the string to get the actual tactic. For example, one of the string may look like "Try this: by blast (0.5 ms)".
   if (debug) println("Checkpoint 11")
-  val normal_with_Sledgehammer: MLFunction4[ToplevelState, Theory, List[
-    String
-  ], List[String], (Boolean, (String, List[String]))] =
-    compileFunction[ToplevelState, Theory, List[String], List[
-      String
-    ], (Boolean, (String, List[String]))](
+  val normal_with_Sledgehammer =
+    compileFunction[ToplevelState, Theory, List[String], List[String], (Boolean, (String, List[String]))](
       s""" fn (state, thy, adds, dels) =>
             |    let
             |       fun get_refs_and_token_lists (name) = (Facts.named name, []);
@@ -324,19 +290,20 @@ class MiniPisaOS(
             |      Timeout.apply (Time.fromSeconds 35) go_run (state, thy) end
             |""".stripMargin
     )
+   */
 
   var toplevel: ToplevelState = init_toplevel().force.retrieveNow
   if (debug) println("Checkpoint 12")
 
-  def reset_map(): Unit = {
-    top_level_state_map = Map()
-  }
+  // def reset_map(): Unit = {
+  //   top_level_state_map = Map()
+  // }
 
-  def reset_prob(): Unit = {
-    thy1 = beginTheory(theoryStarter)
-    toplevel = init_toplevel().force.retrieveNow
-    reset_map()
-  }
+  // def reset_prob(): Unit = {
+  //   thy1 = beginTheory(theoryStarter)
+  //   toplevel = init_toplevel().force.retrieveNow
+  //   reset_map()
+  // }
 
   def getStateString(top_level_state: ToplevelState): String =
     toplevel_string_of_state(top_level_state).force.retrieveNow
@@ -344,37 +311,17 @@ class MiniPisaOS(
   def getProofLevel(top_level_state: ToplevelState): Int =
     proof_level(top_level_state).retrieveNow
 
-  def singleTransitionWith10sTimeout(
-      single_transition: Transition.T,
-      top_level_state: ToplevelState
-  ): ToplevelState = {
-    command_exception_with_10s_timeout(
-      true,
-      single_transition,
-      top_level_state
-    ).retrieveNow.force
-  }
-
-  def singleTransitionWith30sTimeout(
-      single_transition: Transition.T,
-      top_level_state: ToplevelState
-  ): ToplevelState = {
-    command_exception_with_30s_timeout(
-      true,
-      single_transition,
-      top_level_state
-    ).retrieveNow.force
-  }
-
   def singleTransition(
       single_transition: Transition.T,
-      top_level_state: ToplevelState
+      top_level_state: ToplevelState,
+      timeout_in_millis: Option[Int] = None
   ): ToplevelState = {
-    command_exception(
-      true,
-      single_transition,
-      top_level_state
-    ).retrieveNow.force
+    (timeout_in_millis match {
+      case Some(value) =>
+        command_exception_with_timeout(value, true, single_transition, top_level_state)
+      case None =>
+        command_exception(true, single_transition, top_level_state)
+    }).retrieveNow.force
   }
 
   def singleTransition(singTransition: Transition.T): String = {
@@ -391,7 +338,6 @@ class MiniPisaOS(
       timeout_in_millis: Int = 2000
   ): ToplevelState = {
     if (debug) println("Begin step")
-    // Normal isabelle business
     var tls_to_return: ToplevelState = clone_tls_scala(top_level_state)
     var stateString: String          = ""
     val continue                     = new Breaks
@@ -400,19 +346,10 @@ class MiniPisaOS(
       blocking {
         Breaks.breakable {
           if (debug) println("start parsing")
-          for (
-            (transition, text) <- parse_text(
-              thy1,
-              isar_string
-            ).force.retrieveNow
-          )
+          for ((transition, text) <- parse_text(thy1, isar_string).force.retrieveNow)
             continue.breakable {
               if (text.trim.isEmpty) continue.break()
-              // println("Small step : " + text)
-              tls_to_return = if (timeout_in_millis > 10000) {
-                singleTransitionWith30sTimeout(transition, tls_to_return)
-              } else singleTransitionWith10sTimeout(transition, tls_to_return)
-              // println("Applied transition successfully")
+              tls_to_return = singleTransition(transition, tls_to_return, Some(timeout_in_millis))
             }
         }
       }
@@ -431,26 +368,26 @@ class MiniPisaOS(
     return "Destroyed"
   }
 
-  def normal_with_hammer(
-      top_level_state: ToplevelState,
-      added_names: List[String],
-      deleted_names: List[String],
-      timeout_in_millis: Int = 35000
-  ): (Boolean, List[String]) = {
-    val f_res: Future[(Boolean, List[String])] = Future.apply {
-      val first_result = normal_with_Sledgehammer(
-        top_level_state,
-        thy1,
-        added_names,
-        deleted_names
-      ).force.retrieveNow
-      (first_result._1, first_result._2._2)
-    }
-    Await.result(f_res, Duration(timeout_in_millis, "millis"))
-  }
+  // def normal_with_hammer(
+  //     top_level_state: ToplevelState,
+  //     added_names: List[String],
+  //     deleted_names: List[String],
+  //     timeout_in_millis: Int = 35000
+  // ): (Boolean, List[String]) = {
+  //   val f_res: Future[(Boolean, List[String])] = Future.apply {
+  //     val first_result = normal_with_Sledgehammer(
+  //       top_level_state,
+  //       thy1,
+  //       added_names,
+  //       deleted_names
+  //     ).force.retrieveNow
+  //     (first_result._1, first_result._2._2)
+  //   }
+  //   Await.result(f_res, Duration(timeout_in_millis, "millis"))
+  // }
 
   def step_to_transition_text(
-      isar_string: String,
+      isar_string: Option[String],
       after: Boolean = true
   ): String = {
     var stateString: String = ""
@@ -459,25 +396,44 @@ class MiniPisaOS(
     Breaks.breakable {
       for ((transition, text) <- parse_text(thy1, fileContent).force.retrieveNow) {
         continue.breakable {
-          // println("transition=", transition)
-          // println("text=", text)
+          print("transition=" + get_transition_name(transition).force.retrieveNow)
+          print(" is_init=" + is_transition_init(transition).force.retrieveNow)
+          if (is_transition_malformed(transition).force.retrieveNow)
+            throw new Exception("Malformed transition")
+          println(" text='''" + text.trim + "'''")
           if (text.trim.isEmpty) continue.break()
           val trimmed_text =
             text.trim.replaceAll("\n", " ").replaceAll(" +", " ")
-          if (trimmed_text == isar_string) {
-            if (after) {
-              if (debug) println("step_to_transition_text last transition")
-              stateString = singleTransition(transition)
-            }
-            return stateString
+          isar_string match {
+            case Some(isar_string) =>
+              if (trimmed_text == isar_string) {
+                if (after) {
+                  if (debug) println("step_to_transition_text last transition")
+                  stateString = singleTransition(transition)
+                }
+                return stateString
+              }
+            case None =>
+              if (is_end_theory(toplevel).force.retrieveNow)
+                throw new Exception("End of theory before end of file.")
           }
           stateString = singleTransition(transition)
+          println(
+            "stateString='''\n"
+              + stateString.trim.linesWithSeparators.map("\t\t" + _).mkString
+              + "\n'''"
+          )
         }
       }
     }
-    println("Did not find the text")
-    // stateString
-    "error: Did not find the text"
+    if (!is_end_theory(toplevel).force.retrieveNow)
+      throw new Exception("End of file before end of theory.")
+    isar_string match {
+      case Some(isar_string) =>
+        throw new Exception("Did not find the text. Current state: " + stateString)
+      case None =>
+        stateString
+    }
   }
 
   // Manage top level states with the internal map

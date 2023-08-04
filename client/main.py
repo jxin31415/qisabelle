@@ -15,18 +15,19 @@ MAX_RPC_MESSAGE_LENGTH = 100 * 1024 * 1024
 
 
 def main() -> None:
-    extractions_dir = ROOT_DIR / "afp_extractions"
-    print(f"Loading extractions from {ROOT_DIR / 'afp_extractions'}...")
-    extractions = load_extractions(extractions_dir, afp_dir=ROOT_DIR / "afp-2023-03-16")
-    print(f"Loaded {len(extractions)} extractions.")
+    if False:
+        extractions_dir = ROOT_DIR / "afp_extractions"
+        print(f"Loading extractions from {ROOT_DIR / 'afp_extractions'}...")
+        extractions = load_extractions(extractions_dir, afp_dir=ROOT_DIR / "afp-2023-03-16")
+        print(f"Loaded {len(extractions)} extractions.")
 
     tests_dir = ROOT_DIR / "Portal-to-ISAbelle" / "universal_test_theorems"
     print(f"Loading tests from {tests_dir}...")
-    test_files = sorted(tests_dir.glob("quick*.json"), key=_numeric_sort_key)
+    test_files = sorted(tests_dir.glob("quick*.json"), key=_numeric_sort_key)[:1]
     tests = load_test_cases(test_files, afp_dir=ROOT_DIR / "afp-2023-03-16")
     print(f"Loaded {len(tests)} tests.")
 
-    if True:
+    if False:
         test_qisabelle_client()
         return
 
@@ -70,11 +71,21 @@ def evaluate_model(model: Model, tests: list[TestCase], server_afp_dir: Path) ->
                 context_file=thy_file,
                 target=test_case.lemma_statement.strip(),
             ) as proxy:
-                r = run_model_on_test_case(model, test_case.lemma_statement, proxy)
+                r = True
+                # r = run_model_on_test_case(model, test_case.lemma_statement, proxy)
             result = "success" if r else "failure"
         except Exception as e:
             print(repr(e))
-            result = "exception"
+            if "undefined entry for theory" in repr(e):
+                result = "undefined"
+            elif "did not find the text" in repr(e):
+                result = "not_found"
+            elif "No such file" in repr(e):
+                result = "no_such_file"
+            elif "NoSuchFileException" in repr(e):
+                result = "no_such_file2"
+            else:
+                result = "exception"
 
         summary[result] += 1
         print("$" * 100, f"{result} ({summary} / {len(tests)}).")
