@@ -1,5 +1,7 @@
 package server
 
+import scala.concurrent.duration.Duration
+
 import de.unruh.isabelle.pure.{Theory, ToplevelState}
 import de.unruh.isabelle.control.IsabelleMLException
 import de.unruh.isabelle.mlvalue.MLValue
@@ -37,7 +39,7 @@ case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) exte
       return s
     }
     println("initializePisaOS 3: top_level_state_map +=")
-    // pisaos.top_level_state_map += ("default" -> pisaos.copy_tls)
+    pisaos.top_level_state_map += ("default" -> pisaos.copy_tls)
     println("initializePisaOS 4: done.")
     "success"
   }
@@ -51,7 +53,7 @@ case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) exte
 
   @cask.postJson("/step")
   def step(state_name: String, action: String, new_state_name: String): ujson.Obj = {
-    var TIMEOUT: Int             = 2000
+    var timeout: Duration        = Duration(2000, "millisecond")
     val old_state: ToplevelState = pisaos.retrieve_tls(state_name)
     var actual_action: String    = action
     var hammered: Boolean        = false
@@ -85,7 +87,7 @@ case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) exte
     // }
 
     try {
-      val new_state: ToplevelState = pisaos.step(actual_action, old_state, TIMEOUT)
+      val new_state: ToplevelState = pisaos.step(actual_action, old_state, timeout)
       // println("New state: " + pisaos.getStateString(new_state))
 
       pisaos.register_tls(name = new_state_name, tls = new_state)

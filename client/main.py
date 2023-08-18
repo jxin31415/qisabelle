@@ -27,7 +27,7 @@ def main() -> None:
     tests = load_test_cases(test_files, afp_dir=ROOT_DIR / "afp-2023-03-16")
     print(f"Loaded {len(tests)} tests.")
 
-    if False:
+    if True:
         test_qisabelle_client()
         return
 

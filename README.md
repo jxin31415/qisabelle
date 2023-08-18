@@ -7,25 +7,25 @@ QIsabelle only aims to give a simple, reproducible environment for evaluating ML
 
 ## Usage
 ```bash
-git clone git@github.com:marcinwrochna/qisabelle.git
-cd qisabelle
-docker build -f ServerDockerfile -t qisabelle-server .
-# Check isabelle building:
-docker run -it --rm \
-    -p 127.0.0.1:17000:17000 \
-    -v /home/mwrochna/projects/play/afp-2023-03-16:/afp:ro \
-    -v /home/mwrochna/projects/play/heap/:/isa \
-    qisabelle-server \
-    /home/isabelle/Isabelle/bin/isabelle \
-    build -b -j 20 -o timeout_scale=2 -D /afp/thys/Hello_World
-# Start the server:
-docker run -it --rm \
-    -p 127.0.0.1:17000:17000 \
-    -v /home/mwrochna/projects/play/afp-2023-03-16:/afp:ro \
-    -v /home/mwrochna/projects/play/heap/:/isa:ro \
-    qisabelle-server | tee server.log
-# In another tab, start the client:
-python -um client.main | tee client.log
+    git clone git@github.com:marcinwrochna/qisabelle.git
+    cd qisabelle
+    docker build -f ServerDockerfile -t qisabelle-server .
+    # Check isabelle building:
+    docker run -it --rm \
+        -p 127.0.0.1:17000:17000 \
+        -v /home/mwrochna/projects/play/afp-2023-03-16:/afp:ro \
+        -v /home/mwrochna/projects/play/heap/:/isa \
+        qisabelle-server \
+        /home/isabelle/Isabelle/bin/isabelle \
+        build -b -j 20 -o timeout_scale=2 -D /afp/thys/Hello_World
+    # Start the server:
+    docker run -it --rm \
+        -p 127.0.0.1:17000:17000 \
+        -v /home/mwrochna/projects/play/afp-2023-03-16:/afp:ro \
+        -v /home/mwrochna/projects/play/heap/:/isa:ro \
+        qisabelle-server | tee server.log
+    # In another tab, start the client:
+    python -um client.main | tee client.log
 ```
 (Note that we mount a directory like .isabelle/Isabelle2022 to /isa, but the internal files have absolute paths in them).
 On default settings, this should give 161 OK, 63 AssertionError (mostly 'Theory loader: undefined entry for theory'), 375 or 376 timeouts out of 600 tests.
@@ -35,3 +35,7 @@ Because of a [bug](https://github.com/scalameta/metals/issues/5387) in Metals se
 at the moment you need to use the pre-release version of the Scala Metals extension and open
 settings, find "metals server version" and set it to the
 [latest snaphot version](https://scalameta.org/metals/docs/#latest-metals-server-versions).
+
+## With you own version of scala-isabelle
+Change the scala-isabelle version in build.sc to `scala-isabelle:master-SNAPSHOT`
+and run `sbt publishLocal` in your clone of the `scala-isabelle` git repo.
