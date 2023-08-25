@@ -1,9 +1,9 @@
 package server
 import io.undertow.Undertow
 
-import utest._
+import org.scalatest.funsuite.AnyFunSuite
 
-object ExampleTests extends TestSuite {
+class ExampleTests extends AnyFunSuite {
   def withServer[T](server_class: cask.main.Main)(f: String => T): T = {
     val port = sys.env("QISABELLE_PORT").toInt
     val server = Undertow.builder
@@ -17,14 +17,16 @@ object ExampleTests extends TestSuite {
     res
   }
 
-  val tests = Tests {
-    test("exampleTest1") - withServer(QISabelleServer) { host =>
+  test("exampleAPITest1") {
+    withServer(QISabelleServer) { host =>
       val success = requests.get(host)
-      success.text() ==> "Hello World!"
-      success.statusCode ==> 200
+      assert(success.text() == "Hello World!")
+      assert(success.statusCode == 200)
     }
-    test("exampleTest2") - withServer(QISabelleServer) { host =>
-      requests.get(s"$host/doesnt-exist", check = false).statusCode ==> 404
+  }
+  test("exampleAPITest2") {
+    withServer(QISabelleServer) { host =>
+      assert(requests.get(s"$host/doesnt-exist", check = false).statusCode == 404)
     }
   }
 }

@@ -19,9 +19,9 @@ object server extends ScalaModule {
   )
 
   object test extends ScalaTests {
-    def testFramework = "utest.runner.Framework"
+    def testFramework = "org.scalatest.tools.Framework"
     def ivyDeps = Agg(
-      ivy"com.lihaoyi::utest::0.7.10",
+      ivy"org.scalatest::scalatest:3.1.1",
       ivy"com.lihaoyi::requests::0.6.9"
     )
   }
