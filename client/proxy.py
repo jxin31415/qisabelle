@@ -22,7 +22,7 @@ class QIsabelleProxy:
         self.debug = debug
         print("Init..")
         r = self._post(
-            "/initializePisaOS",
+            "/openIsabelleSession",
             {
                 "workingDir": str(working_directory),
                 "theoryPath": str(context_file),
@@ -45,8 +45,8 @@ class QIsabelleProxy:
         return self
 
     def __exit__(self, _exc_type: Any, _exc_value: Any, _traceback: Any) -> None:
-        r = self._post("/exitPisaOS")
-        assert r.json() == "Destroyed", r.text
+        r = self._post("/closeIsabelleSession")
+        assert r.json() == "Closed", r.text
 
     def step_tls(self, action: str, tls_name: str, new_name: str) -> tuple[str, bool]:
         r = self._post(

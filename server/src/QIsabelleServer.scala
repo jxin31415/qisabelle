@@ -10,51 +10,64 @@ import de.unruh.isabelle.pure.Implicits._
 import de.unruh.isabelle.mlvalue.Implicits._
 
 case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) extends cask.Routes {
-  var pisaos: MiniPisaOS = null
+  var session: IsabelleSession = null
+
+  def exceptionMsg(e: Throwable): String = {
+    e.toString() + "\n" + e.getStackTrace().mkString("\n")
+  }
 
   @cask.get("/")
   def hello() = {
     "Hello World!"
   }
 
-  @cask.postJson("/initializePisaOS")
-  def initializePisaOS(workingDir: String, theoryPath: String, target: String): String = {
-    println("initializePisaOS 1: new PisaOS")
+  @cask.postJson("/openIsabelleSession")
+  def openIsabelleSession(workingDir: String, theoryPath: String, target: String): String = {
+    println("openIsabelleSession 1: new IsabelleSession")
     try {
-      pisaos = new MiniPisaOS(
-        path_to_isa_bin = os.Path("/home/isabelle/Isabelle/"),
-        working_dir = os.Path(workingDir),
-        path_to_file = os.Path(theoryPath),
+      session = new IsabelleSession(
+        isabelleDir = os.Path("/home/isabelle/Isabelle/"),
+        workingDir = os.Path(workingDir),
+        theoryPath = os.Path(theoryPath),
         debug = true
       )
     } catch {
-      case e: Throwable =>
-        return ("Error during init of PisaOS (probably in begin_theory): " + e.toString())
+      case e: Throwable => {
+        val msg = "Error creating IsabelleSession (probably in begin_theory): " + exceptionMsg(e)
+        println(msg)
+        return msg
+      }
     }
-    println("initializePisaOS 2: step_to_transition_text")
-    // pisaos.step_to_transition_text("end", after=false)
-    val s = pisaos.step_to_transition_text(Some(target), after = false)
-    println("state=", s)
-    if (s.toLowerCase().startsWith("error")) {
-      return s
+    // return "success"
+
+    try {
+      println("openIsabelleSession 2: execute")
+      val state = session.execute(session.parsedTheory.takeUntil(target, inclusive = false))
+      println("proofState=" + state.proofStateDescription(session.isabelle))
+      println("openIsabelleSession 3: register_tls")
+      session.register_tls("default", state)
+      println("openIsabelleSession 4: done.")
+      return "success"
+    } catch {
+      case e: Throwable => {
+        val msg = "Error in session.execute: " + exceptionMsg(e)
+        println(msg)
+        return msg
+      }
     }
-    println("initializePisaOS 3: top_level_state_map +=")
-    pisaos.top_level_state_map += ("default" -> pisaos.copy_tls)
-    println("initializePisaOS 4: done.")
-    "success"
   }
 
-  @cask.postJson("/exitPisaOS")
-  def exitPisaOS() = {
-    var r = pisaos.exit()
-    pisaos = null
+  @cask.postJson("/closeIsabelleSession")
+  def closeIsabelleSession() = {
+    var r = session.close()
+    session = null
     r
   }
 
   @cask.postJson("/step")
   def step(state_name: String, action: String, new_state_name: String): ujson.Obj = {
     var timeout: Duration        = Duration(2000, "millisecond")
-    val old_state: ToplevelState = pisaos.retrieve_tls(state_name)
+    val old_state: ToplevelState = session.retrieve_tls(state_name)
     var actual_action: String    = action
     var hammered: Boolean        = false
 
@@ -71,7 +84,7 @@ case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) exte
     //     } else List[String]()
     //   }
     //   val partial_hammer = (state: ToplevelState, timeout: Int) =>
-    //     pisaos.normal_with_hammer(state, add_names, del_names, timeout)
+    //     session.normal_with_hammer(state, add_names, del_names, timeout)
     //   try {
     //     actual_action = hammer_actual_step(old_state, new_state_name, partial_hammer)
     //   } catch {
@@ -87,16 +100,16 @@ case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) exte
     // }
 
     try {
-      val new_state: ToplevelState = pisaos.step(actual_action, old_state, timeout)
-      // println("New state: " + pisaos.getStateString(new_state))
+      val new_state: ToplevelState = session.step(actual_action, old_state, timeout)
+      // println("New state: " + session.getStateString(new_state))
 
-      pisaos.register_tls(name = new_state_name, tls = new_state)
+      session.register_tls(name = new_state_name, tls = new_state)
 
-      var state_string: String = pisaos.getStateString(new_state)
+      var state_string: String = new_state.proofStateDescription(session.isabelle)
       if (hammered) {
         state_string = s"(* $action *) $state_string"
       }
-      var done: Boolean = (pisaos.getProofLevel(new_state) == 0)
+      var done: Boolean = (new_state.proofLevel(session.isabelle) == 0)
       ujson.Obj(
         "state_string" -> state_string,
         "done"         -> done
@@ -167,7 +180,7 @@ case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) exte
       //   }
     }
     // println(actual_step)
-    assert(actual_step.trim.nonEmpty)
+    assert(actual_step.trim.nonEmpty, "Empty hammer string")
     actual_step
   }
 
@@ -199,7 +212,7 @@ object QISabelleServer extends cask.Main {
   override def host: String       = sys.env.getOrElse("QISABELLE_HOST", "localhost")
   override def port: Int          = sys.env.getOrElse("QISABELLE_PORT", "17000").toInt
   override def main(args: Array[String]): Unit = {
-    println(s"QIsabelleServer starting on ${host}:${port} ...")
+    println(s"QIsabelleServer starts listening on ${host}:${port}")
     super.main(args)
   }
 }

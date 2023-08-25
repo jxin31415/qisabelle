@@ -23,11 +23,11 @@ def main() -> None:
 
     tests_dir = ROOT_DIR / "Portal-to-ISAbelle" / "universal_test_theorems"
     print(f"Loading tests from {tests_dir}...")
-    test_files = sorted(tests_dir.glob("quick*.json"), key=_numeric_sort_key)[:1]
+    test_files = sorted(tests_dir.glob("quick*.json"), key=_numeric_sort_key)  # [:1]
     tests = load_test_cases(test_files, afp_dir=ROOT_DIR / "afp-2023-03-16")
     print(f"Loaded {len(tests)} tests.")
 
-    if True:
+    if False:
         test_qisabelle_client()
         return
 
@@ -41,19 +41,19 @@ def main() -> None:
 def test_qisabelle_client() -> None:
     p = Path("/afp/thys/Real_Impl/Real_Impl_Auxiliary.thy")
     # p = Path("/afp/thys/Valuation/Valuation1.thy")
-    proxy = QIsabelleProxy(working_directory=p.parent, context_file=p, target="end")
-    print("-" * 50, "A")
-    print(
-        proxy.step_tls(
-            'lemma primes_infinite: "\\<not> (finite {(p::nat). prime p})"', "default", "test"
+    with QIsabelleProxy(working_directory=p.parent, context_file=p, target="end") as proxy:
+        print("-" * 50, "A")
+        print(
+            proxy.step_tls(
+                'lemma primes_infinite: "\\<not> (finite {(p::nat). prime p})"', "default", "test"
+            )
         )
-    )
-    print("-" * 50, "B")
-    print(proxy.step_tls("sledgehammer", "test", "test1"))
-    print("-" * 50, "C")
-    print(proxy.step_tls("normalhammer", "test", "test1"))
-    # print(proxy.step_tls('delhammer primes_infinite', 'test', 'test2'))
-    # print(proxy.step_tls('delhammer primes_infinite,bigger_prime', 'test', 'test3'))
+        print("-" * 50, "B")
+        print(proxy.step_tls("sledgehammer", "test", "test1"))
+        print("-" * 50, "C")
+        print(proxy.step_tls("normalhammer", "test", "test1"))
+        # print(proxy.step_tls('delhammer primes_infinite', 'test', 'test2'))
+        # print(proxy.step_tls('delhammer primes_infinite,bigger_prime', 'test', 'test3'))
 
 
 def evaluate_model(model: Model, tests: list[TestCase], server_afp_dir: Path) -> None:
@@ -71,8 +71,8 @@ def evaluate_model(model: Model, tests: list[TestCase], server_afp_dir: Path) ->
                 context_file=thy_file,
                 target=test_case.lemma_statement.strip(),
             ) as proxy:
-                r = True
-                # r = run_model_on_test_case(model, test_case.lemma_statement, proxy)
+                # r = True
+                r = run_model_on_test_case(model, test_case.lemma_statement, proxy)
             result = "success" if r else "failure"
         except Exception as e:
             print(repr(e))
