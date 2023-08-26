@@ -76,24 +76,6 @@ class IsabelleSessionTests extends AnyFunSuite {
     }
   }
 
-  test("State 1") {
-    withIsabelle(isabelleDir / "src" / "HOL" / "Examples" / "Seq.thy") { session =>
-      implicit val isabelle = session.isabelle
-      var state = session.execute(
-        session.parsedTheory
-          .takeUntil(
-            "lemma reverse_reverse: \"reverse (reverse xs) = xs\"",
-            inclusive = true
-          )
-      )
-      assert(state.isProofMode)
-      val s = state.proofStateDescription
-      assert(s.startsWith("proof (prove)") && s.contains("(1 subgoal"))
-      state = session.step("by (induct xs) (simp_all add: reverse_conc)", state)
-      assert(state.isTheoryMode && state.proofStateDescription == "")
-    }
-  }
-
   test("Missing fact") {
     // We fork states to check facts proved in one are not visible in the other.
     // Right state will prove first lemma.

@@ -277,32 +277,30 @@ class IsabelleSession(
   @throws(classOf[TimeoutException])
   def step(
       isarCode: String,
-      state: ToplevelState,
+      initState: ToplevelState,
       timeout: Duration = Duration.Inf
   ): ToplevelState = {
-    if (debug) println("Begin step")
-    var tls_to_return: ToplevelState = state // clone_tls_scala(state)
-    var stateString: String          = ""
-    val continue                     = new Breaks
-    if (debug) println("Starting to step")
+    if (debug) println("Step: begin")
+    var state: ToplevelState = initState // clone_tls_scala(state)
+    val continue             = new Breaks
     val f_st = Future.apply {
       blocking {
-        if (debug) println("start parsing")
-        for ((transition, text) <- Transition.parseOuterSyntax(parsedTheory.theory, isarCode)) {
+        if (debug) println("Step: parsing")
+        val transitions = Transition.parseOuterSyntax(parsedTheory.theory, isarCode)
+        if (debug) println("Step: execute")
+        for ((transition, text) <- transitions) {
           continue.breakable {
             if (text.trim.isEmpty) continue.break()
-            tls_to_return = transition.execute(tls_to_return, timeout)
+            state = transition.execute(state, timeout)
           }
         }
       }
-      "success"
     }
-    if (debug) println("inter")
+    if (debug) println("Step: await")
 
     // Await for infinite amount of time
     Await.result(f_st, Duration.Inf)
-    if (debug) println(f_st)
-    tls_to_return
+    state
   }
 
   // Manage top level states with the internal map
