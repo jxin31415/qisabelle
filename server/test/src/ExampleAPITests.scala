@@ -4,11 +4,11 @@ import io.undertow.Undertow
 import org.scalatest.funsuite.AnyFunSuite
 
 class ExampleTests extends AnyFunSuite {
-  def withServer[T](server_class: cask.main.Main)(f: String => T): T = {
-    val port = sys.env("QISABELLE_PORT").toInt
+  def withServer(f: String => Unit) = {
+    val port = sys.env.getOrElse("QISABELLE_PORT", "17000").toInt
     val server = Undertow.builder
       .addHttpListener(port, "localhost")
-      .setHandler(server_class.defaultHandler)
+      .setHandler(QISabelleServer.defaultHandler)
       .build
     server.start()
     val res =
@@ -18,15 +18,15 @@ class ExampleTests extends AnyFunSuite {
   }
 
   test("exampleAPITest1") {
-    withServer(QISabelleServer) { host =>
-      val success = requests.get(host)
+    withServer { hostUrl =>
+      val success = requests.get(hostUrl)
       assert(success.text() == "Hello World!")
       assert(success.statusCode == 200)
     }
   }
   test("exampleAPITest2") {
-    withServer(QISabelleServer) { host =>
-      assert(requests.get(s"$host/doesnt-exist", check = false).statusCode == 404)
+    withServer { hostUrl =>
+      assert(requests.get(s"$hostUrl/doesnt-exist", check = false).statusCode == 404)
     }
   }
 }

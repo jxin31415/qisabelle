@@ -34,9 +34,11 @@ class IsabelleSession(
   // which contains our theory.
   val sessionName: String = {
     if (theoryPath.toString().contains("afp")) {
-      workingDir.getSegment(workingDir.segments.indexOf("thys") + 1)
+      theoryPath.getSegment(theoryPath.segments.indexOf("thys") + 1)
     } else if (theoryPath.toString().contains("Isabelle") && theoryPath.segments.contains("src")) {
-      workingDir.segments.drop(workingDir.segments.indexOf("thys") + 1).mkString("-")
+      (theoryPath / os.up).segments
+        .drop(theoryPath.segments.indexOf("src") + 1)
+        .mkString("-")
     } else if (theoryPath.toString().contains("miniF2F")) {
       "HOL"
     } else {
@@ -47,20 +49,16 @@ class IsabelleSession(
   def getPathPrefix(path: os.Path, n_segments: Int): os.Path = {
     os.Path("/" + path.segments.take(n_segments).mkString("/"))
   }
-  def takeWhileAndMore[T](list: Iterator[T], predicate: T => Boolean, count: Int): Iterator[T] = {
-    list.span(predicate) match {
-      case (head, tail) => head ++ tail.take(count)
-      case _            => throw new Exception("takeWhileAndMore: predicate not found")
-    }
-  }
   // Directories in which Isabelle can find sessions (using ROOT and ROOTS files).
   val sessionRoots: Seq[os.Path] = {
     if (theoryPath.toString().contains("afp")) {
-      // Seq(os.Path(takeWhileAndMore(workingDir.segments, (_ != "thys"), 1).mkString("/")))
-      Seq(getPathPrefix(workingDir, workingDir.segments.indexOf("thys") + 1))
+      // Use theoryPath until "thys", inclusive (which means all of AFP).
+      Seq(getPathPrefix(theoryPath, theoryPath.segments.indexOf("thys") + 1))
     } else if (theoryPath.toString().contains("Isabelle") && theoryPath.segments.contains("src")) {
-      Seq(getPathPrefix(workingDir, workingDir.segments.indexOf("src") + 2))
+      // Use theoryPath until "src", inclusive, and one more segment (the logic, like "HOL").
+      Seq(getPathPrefix(theoryPath, theoryPath.segments.indexOf("src") + 2))
     } else if (theoryPath.toString().contains("miniF2F")) {
+      // No non-system imports needed.
       Seq()
     } else {
       throw new Exception("Unsupported file path:" + theoryPath.toString())
@@ -94,10 +92,10 @@ class IsabelleSession(
   implicit val ec: ExecutionContext = ExecutionContext.global
   if (debug) println("Isabelle constructed.")
 
-  if (debug) println("Initialize parser...")
+  if (debug) println("Initializing parser...")
   val time = System.currentTimeMillis()
   Transition.parseOuterSyntax(Theory("Main"), "")
-  if (debug) println(s"Parser initialized in ${(System.currentTimeMillis() - time) / 1000} s.")
+  if (debug) println(s"Initialized parser in ${(System.currentTimeMillis() - time) / 1000} s.")
 
   def close(): String = {
     isabelle.destroy()
@@ -205,6 +203,8 @@ class IsabelleSession(
   }
 
   /** Execute a list of transitions, print the text of a first few for debugging. */
+  @throws(classOf[IsabelleMLException])
+  @throws(classOf[TimeoutException])
   def execute(
       transitions: List[(Transition, String)],
       initState: ToplevelState = ToplevelState(),
@@ -276,19 +276,19 @@ class IsabelleSession(
   @throws(classOf[IsabelleMLException])
   @throws(classOf[TimeoutException])
   def step(
-      isar_string: String,
-      top_level_state: ToplevelState,
+      isarCode: String,
+      state: ToplevelState,
       timeout: Duration = Duration.Inf
   ): ToplevelState = {
     if (debug) println("Begin step")
-    var tls_to_return: ToplevelState = clone_tls_scala(top_level_state)
+    var tls_to_return: ToplevelState = state // clone_tls_scala(state)
     var stateString: String          = ""
     val continue                     = new Breaks
     if (debug) println("Starting to step")
     val f_st = Future.apply {
       blocking {
         if (debug) println("start parsing")
-        for ((transition, text) <- Transition.parseOuterSyntax(parsedTheory.theory, isar_string)) {
+        for ((transition, text) <- Transition.parseOuterSyntax(parsedTheory.theory, isarCode)) {
           continue.breakable {
             if (text.trim.isEmpty) continue.break()
             tls_to_return = transition.execute(tls_to_return, timeout)

@@ -18,7 +18,7 @@ case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) exte
 
   @cask.get("/")
   def hello() = {
-    "Hello World!"
+    "Hello from QIsabelle"
   }
 
   @cask.postJson("/openIsabelleSession")
