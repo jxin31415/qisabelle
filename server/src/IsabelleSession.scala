@@ -212,7 +212,7 @@ class IsabelleSession(
   ): ToplevelState = {
     var state: ToplevelState = initState // clone_tls_scala(initState)
     // Skip empty transitions, to speed-up execution and ease debugging.
-    // TODO is skipping ignored transitions just as fast?
+    // TODO is skipping ignored transitions just as fast? Could be slower due to interaction with Isabelle, could be faster.
     val nonEmptyTransitions = transitions.filter(!_._2.trim.isEmpty)
 
     for (((transition, text), i) <- nonEmptyTransitions.zipWithIndex) {
@@ -220,7 +220,8 @@ class IsabelleSession(
         if (i < nDebug || i >= nonEmptyTransitions.length - nDebug)
           println(describeTransition(transition, text))
         else
-          println("-")
+          print("-") // TODO println if vscode console?
+        System.out.flush()
       }
 
       state = transition.execute(state)
@@ -232,66 +233,87 @@ class IsabelleSession(
     state
   }
 
-  /*
-  // setting up Sledgehammer
-  // val thy_for_sledgehammer: Theory = Theory("HOL.List")
-  val thy_for_sledgehammer = thy1
-  val Sledgehammer: String =
-    thy_for_sledgehammer.importMLStructureNow("Sledgehammer")
-  val Sledgehammer_Commands: String =
-    thy_for_sledgehammer.importMLStructureNow("Sledgehammer_Commands")
-  val Sledgehammer_Prover: String =
-    thy_for_sledgehammer.importMLStructureNow("Sledgehammer_Prover")
-
+  // ------------------------------------------------- setting up Sledgehammer
+  if (debug) println("Hammer: start")
+  val theoryForHammer                = Theory("HOL.List") // parsedTheory.theory
+  val mlSledgehammer: String         = theoryForHammer.importMLStructureNow("Sledgehammer")
+  val mlSledgehammerCommands: String = theoryForHammer.importMLStructureNow("Sledgehammer_Commands")
+  val mlSledgehammerProver: String   = theoryForHammer.importMLStructureNow("Sledgehammer_Prover")
 
   // prove_with_Sledgehammer is mostly identical to check_with_Sledgehammer except for that when the returned Boolean is true, it will
   // also return a non-empty list of Strings, each of which contains executable commands to close the top subgoal. We might need to chop part of
   // the string to get the actual tactic. For example, one of the string may look like "Try this: by blast (0.5 ms)".
-  if (debug) println("Checkpoint 11")
-  val normal_with_Sledgehammer =
-    compileFunction[ToplevelState, Theory, List[String], List[String], (Boolean, (String, List[String]))](
-      s""" fn (state, thy, adds, dels) =>
-            |    let
-            |       fun get_refs_and_token_lists (name) = (Facts.named name, []);
-            |       val adds_refs_and_token_lists = map get_refs_and_token_lists adds;
-            |       val dels_refs_and_token_lists = map get_refs_and_token_lists dels;
-            |       val override = {add=adds_refs_and_token_lists,del=dels_refs_and_token_lists,only=false};
-            |       fun go_run (state, thy) =
-            |          let
-            |             val p_state = Toplevel.proof_of state;
-            |             val ctxt = Proof.context_of p_state;
-            |             val params = ${Sledgehammer_Commands}.default_params thy
-            |                [("provers", "cvc5 vampire verit e spass z3 zipperposition"),("timeout","30"),("verbose","true")];
-            |             val results = ${Sledgehammer}.run_sledgehammer params ${Sledgehammer_Prover}.Normal NONE 1 override p_state;
-            |             val (result, (outcome, step)) = results;
-            |           in
-            |             (result, (${Sledgehammer}.short_string_of_sledgehammer_outcome outcome, [YXML.content_of step]))
-            |           end;
-            |    in
-            |      Timeout.apply (Time.fromSeconds 35) go_run (state, thy) end
-            |""".stripMargin
+  if (debug) println("Hammer: main compile")
+  val normalWithSledgehammer =
+    compileFunction[
+      ToplevelState,
+      Theory,
+      List[String],
+      List[String],
+      (Boolean, (String, List[String]))
+    ](
+      s"""fn (state, thy, adds, dels) =>
+         |    let
+         |       fun get_refs_and_token_lists (name) = (Facts.named name, []);
+         |       val adds_refs_and_token_lists = map get_refs_and_token_lists adds;
+         |       val dels_refs_and_token_lists = map get_refs_and_token_lists dels;
+         |       val override = {add=adds_refs_and_token_lists,del=dels_refs_and_token_lists,only=false};
+         |       fun go_run (state, thy) =
+         |          let
+         |             val p_state = Toplevel.proof_of state;
+         |             val ctxt = Proof.context_of p_state;
+         |             val params = ${mlSledgehammerCommands}.default_params thy
+         |                [("provers", "cvc5 vampire verit e spass z3 zipperposition"),("timeout","30"),("verbose","true")];
+         |             val results = ${mlSledgehammer}.run_sledgehammer params ${mlSledgehammerProver}.Normal NONE 1 override p_state;
+         |             val (result, (outcome, step)) = results;
+         |           in
+         |             (result, (${mlSledgehammer}.short_string_of_sledgehammer_outcome outcome, [YXML.content_of step]))
+         |           end;
+         |    in
+         |      Timeout.apply (Time.fromSeconds 350) go_run (state, thy) end
+         |""".stripMargin
     )
-   */
+  if (debug) println("Hammer: end")
+  // TODO timeout, preplay_timeout,  dont_preplay, try0, smt_proofs, isar_proofs, max_proofs, verbose, induction_rules, learn, fact_filter, minimize
+
+  def normalWithHammer(
+      state: ToplevelState,
+      addedNames: List[String] = List(),
+      deletedNames: List[String] = List(),
+      timeout: Duration = Duration.Inf // Duration(35000, "millis")
+  ): (Boolean, String, List[String]) = {
+    val f_res: Future[(Boolean, String, List[String])] = Future.apply {
+      val r = normalWithSledgehammer(
+        state,
+        parsedTheory.theory,
+        addedNames,
+        deletedNames
+      ).force.retrieveNow
+      (r._1, r._2._1, r._2._2)
+    }
+    Await.result(f_res, timeout)
+  }
 
   @throws(classOf[IsabelleMLException])
   @throws(classOf[TimeoutException])
   def step(
       isarCode: String,
       initState: ToplevelState,
-      timeout: Duration = Duration.Inf
+      timeout: Duration = Duration.Inf,
+      verbose: Boolean = true
   ): ToplevelState = {
     if (debug) println("Step: begin")
     var state: ToplevelState = initState // clone_tls_scala(state)
-    val continue             = new Breaks
     val f_st = Future.apply {
       blocking {
         if (debug) println("Step: parsing")
         val transitions = Transition.parseOuterSyntax(parsedTheory.theory, isarCode)
         if (debug) println("Step: execute")
         for ((transition, text) <- transitions) {
-          continue.breakable {
-            if (text.trim.isEmpty) continue.break()
+          if (verbose) println(describeTransition(transition, text))
+          if (!text.trim.isEmpty) {
             state = transition.execute(state, timeout)
+            if (verbose) println(describeState(state))
           }
         }
       }
@@ -330,21 +352,4 @@ class IsabelleSession(
   //   reset_map()
   // }
 
-  // def normal_with_hammer(
-  //     top_level_state: ToplevelState,
-  //     added_names: List[String],
-  //     deleted_names: List[String],
-  //     timeout_in_millis: Int = 35000
-  // ): (Boolean, List[String]) = {
-  //   val f_res: Future[(Boolean, List[String])] = Future.apply {
-  //     val first_result = normal_with_Sledgehammer(
-  //       top_level_state,
-  //       thy1,
-  //       added_names,
-  //       deleted_names
-  //     ).force.retrieveNow
-  //     (first_result._1, first_result._2._2)
-  //   }
-  //   Await.result(f_res, Duration(timeout_in_millis, "millis"))
-  // }
 }

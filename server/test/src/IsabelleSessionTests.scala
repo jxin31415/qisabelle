@@ -166,4 +166,33 @@ class IsabelleSessionTests extends AnyFunSuite {
       assert(stateR.isTheoryMode && stateR.proofStateDescription == "")
     }
   }
+
+  test("NormalWithHammer") {
+    var lemma = """
+      lemma permsI [Pure.intro]:
+        assumes "bij f" and "MOST x. f x = x"
+        shows "f \<in> perms"
+    """
+    withIsabelle(isabelleDir / "src" / "HOL" / "Examples" / "Adhoc_Overloading_Examples.thy") {
+      session =>
+        implicit val isabelle = session.isabelle
+
+        var state = session.execute(
+          session.parsedTheory.takeUntil(
+            lemma,
+            // "lemma perms_imp_bij: \"f \\<in> perms \\<Longrightarrow> bij f\"",
+            inclusive = true
+          ),
+          nDebug = 10000
+        )
+        state = session.step("using assms", state)
+        // state = session.step("proof (auto simp: perms_def)", state)
+        val (b, s, ls) = session.normalWithHammer(state, addedNames = List("MOST_iff_finiteNeg"))
+        println("b=" + b)   // true
+        println("s=" + s)   // "some"
+        println("ls=" + ls) // List("Try this: by (simp add: MOST_iff_finiteNeg perms_def)")
+        // state = session.step("qed  (metis MOST_iff_finiteNeg)", state)
+        // assert(state.isTheoryMode && state.proofStateDescription == "")
+    }
+  }
 }

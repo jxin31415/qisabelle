@@ -21,6 +21,9 @@ When pre-building AFP, system heaps should be writeable, and AFP code unfortunat
     git clone git@github.com:marcinwrochna/qisabelle.git
     cd qisabelle
     docker build -f ServerDockerfile -t qisabelle-server .
+    # Download and unpack a pre-built AFP heap.
+    # Note that a 3.5G heap.tar.br (compressed with brotli max settings) is 39G unpacked (11G gzipped).
+
     # Build all of AFP as a system heap. This takes ~5h on a powerful server.
     # Timeout errors are normal, just repeat the command to retry failed sessions.
     # You can Ctrl+C and restart to continue at any time.

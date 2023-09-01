@@ -32,7 +32,7 @@ def main() -> None:
         return
 
     evaluate_model(
-        DummyGTModel(),
+        DummyHammerModel(),
         tests,
         server_afp_dir=Path("/afp/"),
     )
@@ -84,7 +84,20 @@ def evaluate_model(model: Model, tests: list[TestCase], server_afp_dir: Path) ->
                 result = "no_such_file"
             elif "NoSuchFileException" in repr(e):
                 result = "no_such_file2"
+            elif "Hammer failed:Timed out" in repr(e):
+                # 'Error during hammer: java.lang.Exception: Hammer failed:Timed out'
+                result = "timeout"
+            elif "Future timed out after" in repr(e):
+                # Error during hammer: java.util.concurrent.TimeoutException: Future timed out after [40000 milliseconds]
+                result = "timeout2"
+            elif "IsabelleMLException: Timeout after" in repr(e):
+                result = "timeout3"
             else:
+                # %%% Test case quick_test_name_298, thy file: Splay_Tree/Splay_Tree.thy
+                # %%% Test case quick_test_name_219, thy file: Word_Lib/Word_Lemmas.thy
+                # %%% Test case quick_test_name_201, thy file: Native_Word/Uint8.thy
+
+                # RuntimeError('Error during step: de.unruh.isabelle.control.IsabelleMLException: Timeout after 2.810s')
                 result = "exception"
 
         summary[result] += 1
@@ -98,6 +111,7 @@ def run_model_on_test_case(model: Model, lemma_statement: str, proxy: QIsabelleP
     try:
         state, _ = proxy.step_tls(lemma_statement, "default", "s")
     except RuntimeError as e:
+        raise
         print(e)
         return False
     print("%" * 100, f"Starting proof search with {lemma_statement=}, {state=}")
@@ -119,7 +133,10 @@ def run_model_on_test_case(model: Model, lemma_statement: str, proxy: QIsabelleP
             new_state_name = f"{state_name}.{i}"
             try:
                 new_state, done = proxy.step_tls(proof_step, state_name, new_state_name)
+                if new_state.lower().startswith("error"):
+                    raise RuntimeError(new_state)
             except RuntimeError as e:
+                raise
                 print(e)
                 continue
             if new_state == state:

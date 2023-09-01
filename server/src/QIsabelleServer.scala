@@ -71,33 +71,33 @@ case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) exte
     var actual_action: String    = action
     var hammered: Boolean        = false
 
-    // if (action.startsWith("normalhammer")) {
-    //   val s: String = action.split("normalhammer").drop(1).mkString("").trim
-    //   val add_names: List[String] = {
-    //     if (s contains "<add>") {
-    //       s.split("<add>")(1).split(",").toList
-    //     } else List[String]()
-    //   }
-    //   val del_names: List[String] = {
-    //     if (s contains "<del>") {
-    //       s.split("<del>")(1).split(",").toList
-    //     } else List[String]()
-    //   }
-    //   val partial_hammer = (state: ToplevelState, timeout: Int) =>
-    //     session.normal_with_hammer(state, add_names, del_names, timeout)
-    //   try {
-    //     actual_action = hammer_actual_step(old_state, new_state_name, partial_hammer)
-    //   } catch {
-    //     case e: Throwable => {
-    //       println("Error during hammer: " + e.toString())
-    //       return ujson.Obj(
-    //         "state_string" -> ("Error during hammer: " + e.toString()),
-    //         "done"         -> false
-    //       )
-    //     }
-    //   }
-    //   hammered = true
-    // }
+    if (action.startsWith("normalhammer")) {
+      val s: String = action.split("normalhammer").drop(1).mkString("").trim
+      val add_names: List[String] = {
+        if (s contains "<add>") {
+          s.split("<add>")(1).split(",").toList
+        } else List[String]()
+      }
+      val del_names: List[String] = {
+        if (s contains "<del>") {
+          s.split("<del>")(1).split(",").toList
+        } else List[String]()
+      }
+      val partial_hammer = (state: ToplevelState, timeout: Duration) =>
+        session.normalWithHammer(state, add_names, del_names, timeout)
+      try {
+        actual_action = hammer_actual_step(old_state, new_state_name, partial_hammer)
+      } catch {
+        case e: Throwable => {
+          println("Error during hammer: " + e.toString())
+          return ujson.Obj(
+            "state_string" -> ("Error during hammer: " + e.toString()),
+            "done"         -> false
+          )
+        }
+      }
+      hammered = true
+    }
 
     try {
       val new_state: ToplevelState = session.step(actual_action, old_state, timeout)
@@ -155,21 +155,21 @@ case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) exte
   def hammer_actual_step(
       old_state: ToplevelState,
       new_name: String,
-      hammer_method: (ToplevelState, Int) => (Boolean, List[String])
+      hammer_method: (ToplevelState, Duration) => (Boolean, String, List[String])
   ): String = {
     // If found a sledgehammer step, execute it differently
     var raw_hammer_strings = List[String]()
     val actual_step: String = { // try {
-      val total_result = hammer_method(old_state, 40000)
+      val total_result = hammer_method(old_state, Duration(40000, "millisecond"))
       // println(total_result)
       val success = total_result._1
       if (success) {
-        // println("Hammer string list: " + total_result._2.mkString(" ||| "))
-        val tentative_step = process_hammer_strings(total_result._2)
+        // println("Hammer string list: " + total_result._3.mkString(" ||| "))
+        val tentative_step = process_hammer_strings(total_result._3)
         // println("actual_step: " + tentative_step)
         tentative_step
       } else {
-        val s = "Hammer failed:" + total_result._2.mkString(" ||| ")
+        val s = "Hammer failed:" + total_result._3.mkString(" ||| ")
         println(s)
         throw new Exception(s)
       }
