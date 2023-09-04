@@ -1,6 +1,7 @@
 package server
 
 import scala.concurrent.duration.Duration
+import scala.util.matching.Regex
 
 import de.unruh.isabelle.pure.{Theory, ToplevelState}
 import de.unruh.isabelle.control.IsabelleMLException
@@ -8,6 +9,7 @@ import de.unruh.isabelle.mlvalue.MLValue
 import de.unruh.isabelle.control.Isabelle
 import de.unruh.isabelle.pure.Implicits._
 import de.unruh.isabelle.mlvalue.Implicits._
+import org.checkerframework.checker.units.qual
 
 case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) extends cask.Routes {
   var session: IsabelleSession = null
@@ -125,51 +127,23 @@ case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) exte
     }
   }
 
-  def process_hammer_strings(hammer_string_list: List[String]): String = {
-    val TRY_STRING: String         = "Try this:"
-    val FOUND_PROOF_STRING: String = "found a proof:"
-    val TIME_STRING1: String       = " ms)"
-    val TIME_STRING2: String       = " s)"
-    var found                      = false
-    for (attempt_string <- hammer_string_list) {
-      if (!found && (attempt_string contains TRY_STRING)) {
-        found = true
-        val parsed = attempt_string.split(TRY_STRING).drop(1).mkString("").trim
-        if ((parsed contains TIME_STRING1) || (parsed contains TIME_STRING2)) {
-          return parsed.split('(').dropRight(1).mkString("(").trim
-        }
-        return parsed
-      } else if (!found && (attempt_string contains FOUND_PROOF_STRING)) {
-        found = true
-        val parsed =
-          attempt_string.split(FOUND_PROOF_STRING).drop(1).mkString("").trim
-        if ((parsed contains TIME_STRING1) || (parsed contains TIME_STRING2)) {
-          return parsed.split('(').dropRight(1).mkString("(").trim
-        }
-        return parsed
-      }
-    }
-    ""
-  }
-
   def hammer_actual_step(
       old_state: ToplevelState,
       new_name: String,
-      hammer_method: (ToplevelState, Duration) => (Boolean, String, List[String])
+      hammer_method: (
+          ToplevelState,
+          Duration
+      ) => (SledgehammerOutcomes.SledgehammerOutcome, String)
   ): String = {
     // If found a sledgehammer step, execute it differently
     var raw_hammer_strings = List[String]()
     val actual_step: String = { // try {
-      val total_result = hammer_method(old_state, Duration(40000, "millisecond"))
-      // println(total_result)
-      val success = total_result._1
-      if (success) {
-        // println("Hammer string list: " + total_result._3.mkString(" ||| "))
-        val tentative_step = process_hammer_strings(total_result._3)
-        // println("actual_step: " + tentative_step)
-        tentative_step
+      val (outcome, proof_text_or_msg) =
+        hammer_method(old_state, Duration(60000, "millisecond"))
+      if (outcome == SledgehammerOutcomes.Some) {
+        proof_text_or_msg
       } else {
-        val s = "Hammer failed:" + total_result._3.mkString(" ||| ")
+        val s = "Hammer failed:" + proof_text_or_msg
         println(s)
         throw new Exception(s)
       }

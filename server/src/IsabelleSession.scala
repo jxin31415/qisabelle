@@ -5,6 +5,7 @@ import scala.collection.mutable.ListBuffer
 import scala.concurrent.{Await, ExecutionContext, Future, TimeoutException, blocking}
 import scala.concurrent.duration.Duration
 import scala.util.{Success, Failure}
+import scala.util.matching.Regex
 import sys.process._
 import _root_.java.nio.file.{Files, Path}
 import _root_.java.io.File
@@ -20,6 +21,21 @@ import de.unruh.isabelle.pure.Implicits._
 import de.unruh.isabelle.control.IsabelleMLException
 import scalaz.std.java.time
 import scalaz.std.string
+
+object SledgehammerOutcomes extends Enumeration {
+  type SledgehammerOutcome = Value
+  val Some, Timeout, ResourcesOut, Unknown, None = Value
+  def fromMLString(s: String): SledgehammerOutcome = {
+    s match {
+      case "some"          => Some         // Success, found some tentative proof.
+      case "timeout"       => Timeout      // Timeout.
+      case "resources_out" => ResourcesOut // Out of memory, too many symbols used, etc.
+      case "none"          => None         // Nothing found, or no subgoals.
+      case "unknown"       => Unknown      // Error.
+      case _               => throw new Exception("Unexpected Sledgehammer outcome: " + s)
+    }
+  }
+}
 
 class IsabelleSession(
     val isabelleDir: os.Path, // Path to the Isabelle distribution directory (should contain bin/isabelle).
@@ -137,7 +153,8 @@ class IsabelleSession(
 
   class ParsedTheory(val path: os.Path, val masterDir: os.Path) {
     val fileContent: String = Files.readString(theoryPath.toNIO)
-    if (debug) println("ParsedTheory fileContent.length=" + fileContent.length)
+    if (debug)
+      println("ParsedTheory fileContent.length=" + fileContent.length + " " + theoryPath.toString())
 
     val theoryHeader: TheoryHeader = TheoryHeader.read(fileContent)
     if (debug) println("ParsedTheory header=" + theoryHeader)
@@ -154,7 +171,7 @@ class IsabelleSession(
     }
     val imports: List[Theory] = importNames.map(Theory(_))
 
-    if (debug) println("ParsedTheory begin...")
+    if (debug) println("ParsedTheory begin... ")
     val theory = _beginTheory(masterDir.toNIO.resolve(""), theoryHeader, imports).retrieveNow
     // Alternatively, we could just do `Theory.begin_theory (name, Position.none) imports`,
     // which is what `Theory.mergeTheories(theoryHeader.name, false, imports)` would do,
@@ -234,64 +251,85 @@ class IsabelleSession(
   }
 
   // ------------------------------------------------- setting up Sledgehammer
-  if (debug) println("Hammer: start")
-  val theoryForHammer                = Theory("HOL.List") // parsedTheory.theory
-  val mlSledgehammer: String         = theoryForHammer.importMLStructureNow("Sledgehammer")
+  if (debug) println("HammerCompilation: start")
+
+  val theoryForHammer        = parsedTheory.theory // Theory("HOL.List") // parsedTheory.theory
+  val mlSledgehammer: String = theoryForHammer.importMLStructureNow("Sledgehammer")
   val mlSledgehammerCommands: String = theoryForHammer.importMLStructureNow("Sledgehammer_Commands")
   val mlSledgehammerProver: String   = theoryForHammer.importMLStructureNow("Sledgehammer_Prover")
 
   // prove_with_Sledgehammer is mostly identical to check_with_Sledgehammer except for that when the returned Boolean is true, it will
   // also return a non-empty list of Strings, each of which contains executable commands to close the top subgoal. We might need to chop part of
   // the string to get the actual tactic. For example, one of the string may look like "Try this: by blast (0.5 ms)".
-  if (debug) println("Hammer: main compile")
+  if (debug) println("HammerCompilation: main compile")
   val normalWithSledgehammer =
     compileFunction[
       ToplevelState,
-      Theory,
       List[String],
       List[String],
-      (Boolean, (String, List[String]))
+      (String, String)
     ](
-      s"""fn (state, thy, adds, dels) =>
+      s"""fn (state, adds, dels) =>
          |    let
-         |       fun get_refs_and_token_lists (name) = (Facts.named name, []);
-         |       val adds_refs_and_token_lists = map get_refs_and_token_lists adds;
-         |       val dels_refs_and_token_lists = map get_refs_and_token_lists dels;
-         |       val override = {add=adds_refs_and_token_lists,del=dels_refs_and_token_lists,only=false};
-         |       fun go_run (state, thy) =
+         |       fun as_ref_and_token_list (name) = (Facts.named name, []);
+         |       val adds_ref = map as_ref_and_token_list adds;
+         |       val dels_ref = map as_ref_and_token_list dels;
+         |       val overrides = {add=adds_ref, del=dels_ref, only=false};
+         |       fun go (state) =
          |          let
-         |             val p_state = Toplevel.proof_of state;
-         |             val ctxt = Proof.context_of p_state;
-         |             val params = ${mlSledgehammerCommands}.default_params thy
-         |                [("provers", "cvc5 vampire verit e spass z3 zipperposition"),("timeout","30"),("verbose","true")];
-         |             val results = ${mlSledgehammer}.run_sledgehammer params ${mlSledgehammerProver}.Normal NONE 1 override p_state;
-         |             val (result, (outcome, step)) = results;
+         |             val proof_state = Toplevel.proof_of state;
+         |             val params = ${mlSledgehammerCommands}.default_params (Toplevel.theory_of state)
+         |                [("provers", "cvc5 vampire verit e spass z3 zipperposition"),
+         |                 ("timeout","30"),
+         |                 ("verbose","true")];
+         |             val results = ${mlSledgehammer}.run_sledgehammer
+         |                params ${mlSledgehammerProver}.Normal NONE 1 overrides proof_state;
+         |             val (is_outcome_SH_Some, (outcome, message)) = results;
          |           in
-         |             (result, (${mlSledgehammer}.short_string_of_sledgehammer_outcome outcome, [YXML.content_of step]))
+         |             (${mlSledgehammer}.short_string_of_sledgehammer_outcome outcome, YXML.content_of message)
          |           end;
          |    in
-         |      Timeout.apply (Time.fromSeconds 350) go_run (state, thy) end
+         |      Timeout.apply (Time.fromSeconds 350) go (state) end
          |""".stripMargin
     )
-  if (debug) println("Hammer: end")
+  if (debug) println("HammerCompilation: end")
+  // Unfortunately we have to cut the reconstructed proof from the message, there's no way to get it more directly.
+  // You can get the proof method and list of used facts, which might be enough in 95% of cases.
+  // |  val preplay_results = case outcome of ${mlSledgehammer}.SH_Some (_, preplay_results) => preplay_results | _ => [];
+  // |  val preplay_strs = map (fn (proof_method, play_outcome, lst) => map fst lst) preplay_results;
   // TODO timeout, preplay_timeout,  dont_preplay, try0, smt_proofs, isar_proofs, max_proofs, verbose, induction_rules, learn, fact_filter, minimize
+
+  val hammerPreplayTime: Regex = "\\([0-9.,]+\\s+m?s\\)$".r
+
+  def hammerMessageToProofText(hammerMessage: String): String = {
+    val s = hammerPreplayTime.replaceAllIn(hammerMessage.trim, "").trim
+    if (s contains "Try this:")
+      s.stripPrefix("Try this:").trim
+    else if (s contains "found a proof:")
+      s.split("found a proof:").drop(1).mkString("").trim
+    else
+      throw new Exception("Could not parse hammer message: " + hammerMessage)
+  }
 
   def normalWithHammer(
       state: ToplevelState,
       addedNames: List[String] = List(),
       deletedNames: List[String] = List(),
       timeout: Duration = Duration.Inf // Duration(35000, "millis")
-  ): (Boolean, String, List[String]) = {
-    val f_res: Future[(Boolean, String, List[String])] = Future.apply {
-      val r = normalWithSledgehammer(
-        state,
-        parsedTheory.theory,
-        addedNames,
-        deletedNames
-      ).force.retrieveNow
-      (r._1, r._2._1, r._2._2)
+  ): (SledgehammerOutcomes.SledgehammerOutcome, String) = {
+    println("Hammer: start")
+    val start = System.currentTimeMillis()
+    val f_res: Future[(String, String)] = Future.apply {
+      normalWithSledgehammer(state, addedNames, deletedNames).force.retrieveNow
     }
-    Await.result(f_res, timeout)
+    val (outcomeString, message) = Await.result(f_res, timeout)
+    val outcome                  = SledgehammerOutcomes.fromMLString(outcomeString)
+    val proofOrMessage =
+      if (outcome == SledgehammerOutcomes.Some) hammerMessageToProofText(message) else message
+    println("Hammer: time=" + ((System.currentTimeMillis() - start) / 1000.0) + "s")
+    println("Hammer: outcome=" + outcome)
+    println("Hammer: proof/msg=" + proofOrMessage)
+    (outcome, proofOrMessage)
   }
 
   @throws(classOf[IsabelleMLException])
