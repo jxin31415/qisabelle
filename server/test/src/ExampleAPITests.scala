@@ -3,7 +3,7 @@ import io.undertow.Undertow
 
 import org.scalatest.funsuite.AnyFunSuite
 
-class ExampleTests extends AnyFunSuite {
+class ExampleAPITests extends AnyFunSuite {
   def withServer(f: String => Unit) = {
     val port = sys.env.getOrElse("QISABELLE_PORT", "17000").toInt
     val server = Undertow.builder

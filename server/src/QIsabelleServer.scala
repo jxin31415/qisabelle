@@ -85,8 +85,10 @@ case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) exte
           s.split("<del>")(1).split(",").toList
         } else List[String]()
       }
-      val partial_hammer = (state: ToplevelState, timeout: Duration) =>
-        session.normalWithHammer(state, add_names, del_names, timeout)
+      val partial_hammer = (state: ToplevelState, timeout: Duration) => {
+        implicit val isabelle = session.isabelle
+        Sledgehammer.run(state, add_names, del_names, timeout)
+      }
       try {
         actual_action = hammer_actual_step(old_state, new_state_name, partial_hammer)
       } catch {
@@ -133,14 +135,14 @@ case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) exte
       hammer_method: (
           ToplevelState,
           Duration
-      ) => (SledgehammerOutcomes.SledgehammerOutcome, String)
+      ) => (Sledgehammer.Outcomes.Outcome, String)
   ): String = {
     // If found a sledgehammer step, execute it differently
     var raw_hammer_strings = List[String]()
     val actual_step: String = { // try {
       val (outcome, proof_text_or_msg) =
         hammer_method(old_state, Duration(60000, "millisecond"))
-      if (outcome == SledgehammerOutcomes.Some) {
+      if (outcome == Sledgehammer.Outcomes.Some) {
         proof_text_or_msg
       } else {
         val s = "Hammer failed:" + proof_text_or_msg
