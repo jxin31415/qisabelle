@@ -84,7 +84,7 @@ class ParsedTheory(
     s.trim.replaceAll("\n", " ").replaceAll(" +", " ")
   }
 
-  /** Execute all transitions (inc. theory end), print the text of a first few for debugging.
+  /** Execute all transitions (inc. theory end), print the text of first/last few for debugging.
     *
     * @param initState
     *   State to start from: the default empty state is usually good.
@@ -102,7 +102,7 @@ class ParsedTheory(
     execute(transitions, initState, nDebug)
   }
 
-  /** Execute all transitions until a given one, print the text of a first few for debugging.
+  /** Execute all transitions until a given one, print the text of first/last few for debugging.
     *
     * @param isarString
     *   Transition string to execute until (whitespace is ignored when comparing).
@@ -124,7 +124,7 @@ class ParsedTheory(
     execute(takeUntil(isarString, inclusive = inclusive), initState, nDebug)
   }
 
-  /** Execute a list of transitions, print the text of a first few for debugging. */
+  /** Execute a list of transitions, print the text of first/last few for debugging. */
   @throws(classOf[IsabelleMLException])
   @throws(classOf[TimeoutException])
   def execute(
@@ -132,7 +132,7 @@ class ParsedTheory(
       initState: ToplevelState = ToplevelState(),
       nDebug: Integer = 0 // How many first and last non-empty transitions/states to print.
   ): ToplevelState = {
-    var state: ToplevelState = initState // clone_tls_scala(initState)
+    var state: ToplevelState = initState
     // Skip empty transitions, to speed-up execution and ease debugging.
     // TODO is skipping ignored transitions just as fast? Could be slower due to interaction with Isabelle, could be faster.
     val nonEmptyTransitions = transitions.filter(!_._2.trim.isEmpty)

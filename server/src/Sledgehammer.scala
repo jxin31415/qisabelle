@@ -1,7 +1,7 @@
 package server
 
 import scala.language.postfixOps
-import scala.concurrent.duration.Duration
+import scala.concurrent.duration._
 import scala.concurrent.{Await, ExecutionContext, Future, TimeoutException, blocking}
 import scala.util.matching.Regex
 
@@ -57,9 +57,9 @@ object Sledgehammer extends OperationCollection {
       state: ToplevelState,
       addedNames: List[String] = List(),
       deletedNames: List[String] = List(),
-      softTimeout: Duration = Duration(30, "seconds"),
-      midTimeout: Duration = Duration(35, "seconds"),
-      hardTimeout: Duration = Duration(45, "seconds"),
+      softTimeout: Duration = 30.seconds,
+      midTimeout: Duration = 35.seconds,
+      hardTimeout: Duration = 35.seconds,
       debug: Boolean = true
   )(implicit isabelle: Isabelle): (Outcomes.Outcome, String) = {
     if (debug) println("Hammer: start")

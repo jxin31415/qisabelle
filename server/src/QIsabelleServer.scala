@@ -1,6 +1,6 @@
 package server
 
-import scala.concurrent.duration.Duration
+import scala.concurrent.duration._
 import scala.util.matching.Regex
 
 import de.unruh.isabelle.pure.{Theory, ToplevelState}
@@ -12,12 +12,10 @@ import de.unruh.isabelle.mlvalue.Implicits._
 import org.checkerframework.checker.units.qual
 
 case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) extends cask.Routes {
-  var session: IsabelleSession = null
+  var session: IsabelleSession   = null
+  var parsedTheory: ParsedTheory = null
 
-  def exceptionMsg(e: Throwable): String = {
-    e.toString() + "\n" + e.getStackTrace().mkString("\n")
-  }
-
+  // A dummy endpoint to just check if the server is running.
   @cask.get("/")
   def hello() = {
     "Hello from QIsabelle"
@@ -27,12 +25,18 @@ case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) exte
   def openIsabelleSession(workingDir: String, theoryPath: String, target: String): String = {
     println("openIsabelleSession 1: new IsabelleSession")
     try {
+      val sessionName  = IsabelleSession.guessSessionName(os.Path(theoryPath))
+      val sessionRoots = IsabelleSession.guessSessionRoots(os.Path(theoryPath))
+
       session = new IsabelleSession(
         isabelleDir = os.Path("/home/isabelle/Isabelle/"),
+        sessionName = sessionName,
+        sessionRoots = sessionRoots,
         workingDir = os.Path(workingDir),
-        theoryPath = os.Path(theoryPath),
         debug = true
       )
+      implicit val isabelle = session.isabelle
+      parsedTheory = new ParsedTheory(os.Path(theoryPath), sessionName, debug = true)
     } catch {
       case e: Throwable => {
         val msg = "Error creating IsabelleSession (probably in begin_theory): " + exceptionMsg(e)
@@ -40,12 +44,10 @@ case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) exte
         return msg
       }
     }
-    // return "success"
 
     try {
       println("openIsabelleSession 2: execute")
-      val state =
-        session.parsedTheory.execute(session.parsedTheory.takeUntil(target, inclusive = false))
+      val state = parsedTheory.executeUntil(target, inclusive = false)
       println("proofState=" + state.proofStateDescription(session.isabelle))
       println("openIsabelleSession 3: register_tls")
       session.register_tls("default", state)
@@ -64,12 +66,13 @@ case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) exte
   def closeIsabelleSession() = {
     var r = session.close()
     session = null
+    parsedTheory = null
     r
   }
 
   @cask.postJson("/step")
   def step(state_name: String, action: String, new_state_name: String): ujson.Obj = {
-    var timeout: Duration        = Duration(2000, "millisecond")
+    var timeout: Duration        = 2.seconds
     val old_state: ToplevelState = session.retrieve_tls(state_name)
     var actual_action: String    = action
     var hammered: Boolean        = false
@@ -105,16 +108,17 @@ case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) exte
     }
 
     try {
-      val new_state: ToplevelState = session.step(actual_action, old_state, timeout)
+      implicit val isabelle: Isabelle = session.isabelle
+      val new_state: ToplevelState    = IsabelleSession.step(actual_action, old_state, timeout)
       // println("New state: " + session.getStateString(new_state))
 
       session.register_tls(name = new_state_name, tls = new_state)
 
-      var state_string: String = new_state.proofStateDescription(session.isabelle)
+      var state_string: String = new_state.proofStateDescription
       if (hammered) {
         state_string = s"(* $action *) $state_string"
       }
-      var done: Boolean = (new_state.proofLevel(session.isabelle) == 0)
+      var done: Boolean = (new_state.proofLevel == 0)
       ujson.Obj(
         "state_string" -> state_string,
         "done"         -> done
@@ -142,7 +146,7 @@ case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) exte
     var raw_hammer_strings = List[String]()
     val actual_step: String = { // try {
       val (outcome, proof_text_or_msg) =
-        hammer_method(old_state, Duration(60000, "millisecond"))
+        hammer_method(old_state, 60.seconds)
       if (outcome == Sledgehammer.Outcomes.Some) {
         proof_text_or_msg
       } else {
@@ -161,16 +165,17 @@ case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) exte
     actual_step
   }
 
+// === Examples of parameterized HTTP endpoints in cask. ===
 //   @cask.post("/do-thing")
 //   def doThing(request: cask.Request) = {
 //     request.text().reverse
 //   }
-
+//
 //   @cask.get("/user/:userName")
 //   def showUserProfile(userName: String) = {
 //     s"User $userName"
 //   }
-
+//
 //   @cask.postJson("/form")  // Expects a dict with keys value1, value2.
 //   def formEndpointObj(value1: String, value2: Seq[Int]) = {
 //     ujson.Obj(
@@ -179,6 +184,10 @@ case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) exte
 //     )
 //     // cask.Abort(401)
 //   }
+
+  def exceptionMsg(e: Throwable): String = {
+    e.toString() + "\n" + e.getStackTrace().mkString("\n")
+  }
 
   initialize()
 }
