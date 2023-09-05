@@ -9,18 +9,13 @@ class SledgehammerTests extends TestEnvironment {
         assumes "bij f" and "MOST x. f x = x"
         shows "f \<in> perms"
     """
+    // "lemma perms_imp_bij: \"f \\<in> perms \\<Longrightarrow> bij f\"",
+
     withIsabelle(isabelleDir / "src" / "HOL" / "Examples" / "Adhoc_Overloading_Examples.thy") {
       session =>
         implicit val isabelle = session.isabelle
 
-        var state = session.execute(
-          session.parsedTheory.takeUntil(
-            lemma,
-            // "lemma perms_imp_bij: \"f \\<in> perms \\<Longrightarrow> bij f\"",
-            inclusive = true
-          ),
-          nDebug = 10000
-        )
+        var state = session.parsedTheory.executeUntil(lemma, inclusive = true, nDebug = 10000)
         state = session.step("using assms", state)
         // state = session.step("proof (auto simp: perms_def)", state)
         val (outcome, proofTextOrMsg) =
@@ -44,10 +39,7 @@ class SledgehammerTests extends TestEnvironment {
     withIsabelle(afpDir / "Verified_SAT_Based_AI_Planning" / "STRIPS_Semantics.thy") { session =>
       implicit val isabelle = session.isabelle
 
-      var state = session.execute(
-        session.parsedTheory.takeUntil(lemma, inclusive = true),
-        nDebug = 2
-      )
+      var state = session.parsedTheory.executeUntil(lemma, inclusive = true, nDebug = 2)
       val (outcome, proofTextOrMsg) = Sledgehammer.run(state)
       assert(outcome == Sledgehammer.Outcomes.Some)
       assert(proofTextOrMsg.startsWith("by "))
@@ -83,10 +75,7 @@ class SledgehammerTests extends TestEnvironment {
     withIsabelle(afpDir / "Binomial-Heaps" / "SkewBinomialHeap.thy") { session =>
       implicit val isabelle = session.isabelle
 
-      var state = session.execute(
-        session.parsedTheory.takeUntil(firstLemma, inclusive = false),
-        nDebug = 2
-      )
+      var state = session.parsedTheory.executeUntil(firstLemma, inclusive = false, nDebug = 2)
 
       state = session.step(firstLemma, state)
       state = session.step(firstProof, state)

@@ -102,137 +102,7 @@ class IsabelleSession(
     return "Closed"
   }
 
-  /** Turns an import string from a theory header into a theory name that can be loaded.
-    *
-    * For theories already loaded in the heap (which is all we want here), this is:
-    *   - for path imports: session_name + "." + (filename from the path).
-    *   - for literal imports (non-paths): the import string, unchanged. For new theories, you may
-    *     want to use Resources.default_qualifier == "Draft" as the session name.
-    *
-    * The master_dir is only used for relative paths, only if they are not already in the heap.
-    */
-  private val _getImportName = compileFunction[String, String, Path, String]("""
-    |fn (import_string, session_name, master_dir) =>
-    |  let
-    |    val {theory_name, ...} = Resources.import_name session_name master_dir import_string;
-    |  in theory_name end
-    |""".stripMargin)
-  def getImportName(importString: String, sessionName: String, masterDir: Path): String = {
-    _getImportName(importString, sessionName, masterDir).force.retrieveNow
-  }
-
-  /** Check if a theory is already loaded in the heap. */
-  private val _isTheoryLoaded = compileFunction[String, Boolean]("Resources.loaded_theory")
-  def isTheoryLoaded(theoryName: String): Boolean = {
-    _isTheoryLoaded(theoryName).force.retrieveNow
-  }
-
-  private val _beginTheory = MLValue.compileFunction[Path, TheoryHeader, List[Theory], Theory](
-    "fn (master_dir, header, parents) => Resources.begin_theory master_dir header parents"
-  )
-
-  def normalizeWhitespace(s: String): String = {
-    s.trim.replaceAll("\n", " ").replaceAll(" +", " ")
-  }
-
-  class ParsedTheory(val path: os.Path, val masterDir: os.Path) {
-    val fileContent: String = Files.readString(theoryPath.toNIO)
-    if (debug)
-      println("ParsedTheory fileContent.length=" + fileContent.length + " " + theoryPath.toString())
-
-    val theoryHeader: TheoryHeader = TheoryHeader.read(fileContent)
-    if (debug) println("ParsedTheory header=" + theoryHeader)
-    if (theoryHeader.name != theoryPath.baseName)
-      println(s"Warning: theory name (${theoryHeader.name}) != filename (${theoryPath.baseName}).")
-
-    // Lookup imports, assert they're already loaded in the heap.
-    val importNames: List[String] =
-      theoryHeader.imports.map(getImportName(_, sessionName, masterDir.toNIO))
-    if (debug) println("ParsedTheory importNames=" + importNames)
-    importNames.find(!isTheoryLoaded(_)) match {
-      case Some(name) => throw new Exception("Theory not loaded in session heap: " + name)
-      case None       => ()
-    }
-    val imports: List[Theory] = importNames.map(Theory(_))
-
-    if (debug) println("ParsedTheory begin... ")
-    val theory = _beginTheory(masterDir.toNIO.resolve(""), theoryHeader, imports).retrieveNow
-    // Alternatively, we could just do `Theory.begin_theory (name, Position.none) imports`,
-    // which is what `Theory.mergeTheories(theoryHeader.name, false, imports)` would do,
-    // but this is probably closer to what Isabelle/jEdit does (it loads keywords etc.).
-    if (debug) println("ParsedTheory await..")
-    theory.await
-    if (debug) println("ParsedTheory parsing...")
-    val transitions = Transition.parseOuterSyntax(theory, fileContent)
-    if (debug) println("ParsedTheory done.")
-
-    /** Transitions (with their text) until the "theory .. begin" transition, inclusive. */
-    def initTransitions(): List[(Transition, String)] = {
-      transitions.take(transitions.indexWhere(_._1.isInit) + 1).toList
-    }
-
-    /** Transitions (with their text) until a given one. */
-    def takeUntil(isarString: String, inclusive: Boolean): List[(Transition, String)] = {
-      val s     = normalizeWhitespace(isarString)
-      val index = transitions.indexWhere(t => normalizeWhitespace(t._2) == s)
-      if (index == -1)
-        throw new Exception("Transition not found: " + isarString)
-      if (inclusive)
-        transitions.take(index + 1).toList
-      else
-        transitions.take(index).toList
-    }
-  }
-  val parsedTheory = new ParsedTheory(theoryPath, workingDir)
-
-  def indent(s: String, indentation: String = "\t"): String = {
-    s.linesWithSeparators.map(indentation + _).mkString
-  }
-  def describeTransition(transition: Transition, text: String): String = {
-    var s = s"Transition[name=${transition.name}, is_init=${transition.isInit}"
-    if (text.trim.isEmpty)
-      s + "]"
-    else
-      s + s", text='''\n${indent(text.trim)}\n''']"
-  }
-  def describeState(state: ToplevelState): String = {
-    var s = s"State[mode=${state.mode}, localTheory='${state.localTheoryDescription}'"
-    if (state.proofStateDescription.trim.isEmpty)
-      s + "]"
-    else
-      s + s", proofState='''\n${indent(state.proofStateDescription.trim)}\n''']"
-  }
-
-  /** Execute a list of transitions, print the text of a first few for debugging. */
-  @throws(classOf[IsabelleMLException])
-  @throws(classOf[TimeoutException])
-  def execute(
-      transitions: List[(Transition, String)],
-      initState: ToplevelState = ToplevelState(),
-      nDebug: Integer = 0 // How many first and last non-empty transitions/states to print.
-  ): ToplevelState = {
-    var state: ToplevelState = initState // clone_tls_scala(initState)
-    // Skip empty transitions, to speed-up execution and ease debugging.
-    // TODO is skipping ignored transitions just as fast? Could be slower due to interaction with Isabelle, could be faster.
-    val nonEmptyTransitions = transitions.filter(!_._2.trim.isEmpty)
-
-    for (((transition, text), i) <- nonEmptyTransitions.zipWithIndex) {
-      if (debug) {
-        if (i < nDebug || i >= nonEmptyTransitions.length - nDebug)
-          println(describeTransition(transition, text))
-        else
-          print(".") // TODO println iff vscode console?
-        System.out.flush()
-      }
-
-      state = transition.execute(state)
-
-      if (debug && (i < nDebug || i >= nonEmptyTransitions.length - nDebug))
-        println(describeState(state))
-    }
-
-    state
-  }
+  val parsedTheory = new ParsedTheory(theoryPath, sessionName, debug)
 
   if (debug) println("HammerCompilation: start")
   Sledgehammer.Ops.runSledgehammer.force.retrieveNow
@@ -254,10 +124,10 @@ class IsabelleSession(
         val transitions = Transition.parseOuterSyntax(parsedTheory.theory, isarCode)
         if (debug) println("Step: execute")
         for ((transition, text) <- transitions) {
-          if (verbose) println(describeTransition(transition, text))
+          if (verbose) println(ParsedTheory.describeTransition(transition, text))
           if (!text.trim.isEmpty) {
             state = transition.execute(state, timeout)
-            if (verbose) println(describeState(state))
+            if (verbose) println(ParsedTheory.describeState(state))
           }
         }
       }

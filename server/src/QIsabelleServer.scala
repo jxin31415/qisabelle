@@ -44,7 +44,8 @@ case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) exte
 
     try {
       println("openIsabelleSession 2: execute")
-      val state = session.execute(session.parsedTheory.takeUntil(target, inclusive = false))
+      val state =
+        session.parsedTheory.execute(session.parsedTheory.takeUntil(target, inclusive = false))
       println("proofState=" + state.proofStateDescription(session.isabelle))
       println("openIsabelleSession 3: register_tls")
       session.register_tls("default", state)

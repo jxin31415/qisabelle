@@ -7,7 +7,7 @@ class IsabelleSessionTests extends TestEnvironment {
     withIsabelle(afpDir / "Graph_Theory" / "Digraph.thy") { session =>
       implicit val isabelle = session.isabelle
 
-      val state = session.execute(session.parsedTheory.transitions)
+      val state = session.parsedTheory.executeAll()
       assert(state.isEndTheory)
     }
   }
@@ -17,7 +17,7 @@ class IsabelleSessionTests extends TestEnvironment {
     withIsabelle(afpDir / "Coinductive" / "Examples" / "CCPO_Topology.thy") { session =>
       implicit val isabelle = session.isabelle
 
-      val state = session.execute(session.parsedTheory.transitions)
+      val state = session.parsedTheory.executeAll()
       assert(state.isEndTheory)
     }
   }
@@ -34,7 +34,7 @@ class IsabelleSessionTests extends TestEnvironment {
     withIsabelle(p) { session =>
       implicit val isabelle = session.isabelle
 
-      val state = session.execute(session.parsedTheory.transitions)
+      val state = session.parsedTheory.executeAll()
       assert(state.isEndTheory)
     }
   }
@@ -43,7 +43,7 @@ class IsabelleSessionTests extends TestEnvironment {
     withIsabelle(isabelleDir / "src" / "HOL" / "Examples" / "Seq.thy") { session =>
       implicit val isabelle = session.isabelle
 
-      val state = session.execute(session.parsedTheory.transitions, nDebug = 10000)
+      val state = session.parsedTheory.executeAll(nDebug = 1000)
       assert(state.isEndTheory)
     }
   }
@@ -61,9 +61,8 @@ class IsabelleSessionTests extends TestEnvironment {
 
     withIsabelle(isabelleDir / "src" / "HOL" / "Examples" / "Seq.thy") { session =>
       implicit val isabelle = session.isabelle
-      val stateCommon = session.execute(
-        session.parsedTheory.takeUntil(firstLemma, inclusive = false)
-      )
+
+      val stateCommon = session.parsedTheory.executeUntil(firstLemma, inclusive = false)
       assert(stateCommon.isTheoryMode)
 
       // Right: prove first lemma.
@@ -106,9 +105,8 @@ class IsabelleSessionTests extends TestEnvironment {
 
     withIsabelle(isabelleDir / "src" / "HOL" / "Examples" / "Seq.thy") { session =>
       implicit val isabelle = session.isabelle
-      val stateCommon = session.execute(
-        session.parsedTheory.takeUntil(firstLemma, inclusive = false)
-      )
+
+      val stateCommon = session.parsedTheory.executeUntil(firstLemma, inclusive = false)
       assert(stateCommon.isTheoryMode)
 
       // Left: prove dummy first lemma under same name.
