@@ -154,34 +154,12 @@ class IsabelleSession(
   Transition.parseOuterSyntax(Theory("Main"), "")
   if (debug) println(s"Initialized parser in ${(System.currentTimeMillis() - time) / 1000} s.")
 
-  def close(): String = {
-    isabelle.destroy()
-    return "Closed"
-  }
-
   if (debug) println("HammerCompilation: start")
   Sledgehammer.Ops.runSledgehammer.force.retrieveNow
   if (debug) println("HammerCompilation: end")
 
-  // Manage top level states with the internal map
-  var top_level_state_map: Map[String, MLValue[ToplevelState]] = Map()
-  def register_tls(name: String, tls: ToplevelState): Unit =
-    top_level_state_map += (name -> tls.mlValue)
-
-  def _retrieve_tls(tls_name: String): Future[ToplevelState] =
-    ToplevelState.converter.retrieve(top_level_state_map(tls_name))
-
-  def retrieve_tls(tls_name: String): ToplevelState =
-    Await.result(_retrieve_tls(tls_name), Duration.Inf)
-
-  // def reset_map(): Unit = {
-  //   top_level_state_map = Map()
-  // }
-
-  // def reset_prob(): Unit = {
-  //   thy1 = beginTheory(theoryStarter)
-  //   toplevel = ToplevelState()
-  //   reset_map()
-  // }
-
+  def close(): String = {
+    isabelle.destroy()
+    return "Closed"
+  }
 }

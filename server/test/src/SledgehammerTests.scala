@@ -12,18 +12,19 @@ class SledgehammerTests extends TestEnvironment {
     // "lemma perms_imp_bij: \"f \\<in> perms \\<Longrightarrow> bij f\"",
 
     withIsabelle(isabelleDir / "src" / "HOL" / "Examples" / "Adhoc_Overloading_Examples.thy") {
-      session =>
+      (session: IsabelleSession, parsedTheory: ParsedTheory) =>
         implicit val isabelle = session.isabelle
+        implicit val ec       = session.ec
 
-        var state = session.parsedTheory.executeUntil(lemma, inclusive = true, nDebug = 10000)
-        state = session.step("using assms", state)
+        var state = parsedTheory.executeUntil(lemma, inclusive = true, nDebug = 10000)
+        state = IsabelleSession.step("using assms", state)
         // state = session.step("proof (auto simp: perms_def)", state)
         val (outcome, proofTextOrMsg) =
           Sledgehammer.run(state, addedNames = List("MOST_iff_finiteNeg"))
         assert(outcome == Sledgehammer.Outcomes.Some)
         assert(proofTextOrMsg.startsWith("by "))
         // "by (simp add: MOST_iff_finiteNeg perms_def)"
-        state = session.step(proofTextOrMsg, state)
+        state = IsabelleSession.step(proofTextOrMsg, state)
         assert(state.isTheoryMode && state.proofStateDescription == "")
         // state = session.step("qed  (metis MOST_iff_finiteNeg)", state)
         // assert(state.isTheoryMode && state.proofStateDescription == "")
@@ -36,16 +37,18 @@ class SledgehammerTests extends TestEnvironment {
         assumes "as = effect_to_assignments op"
         shows "as = (map (\<lambda>v. (v, True)) (add_effects_of op) @ map (\<lambda>v. (v, False)) (delete_effects_of op))"
     """
-    withIsabelle(afpDir / "Verified_SAT_Based_AI_Planning" / "STRIPS_Semantics.thy") { session =>
-      implicit val isabelle = session.isabelle
+    withIsabelle(afpDir / "Verified_SAT_Based_AI_Planning" / "STRIPS_Semantics.thy") {
+      (session: IsabelleSession, parsedTheory: ParsedTheory) =>
+        implicit val isabelle = session.isabelle
+        implicit val ec       = session.ec
 
-      var state = session.parsedTheory.executeUntil(lemma, inclusive = true, nDebug = 2)
-      val (outcome, proofTextOrMsg) = Sledgehammer.run(state)
-      assert(outcome == Sledgehammer.Outcomes.Some)
-      assert(proofTextOrMsg.startsWith("by "))
-      // "by (simp add: assms effect__strips_def effect_to_assignments_def)"
-      state = session.step(proofTextOrMsg, state)
-      assert(state.isTheoryMode && state.proofStateDescription == "")
+        var state = parsedTheory.executeUntil(lemma, inclusive = true, nDebug = 2)
+        val (outcome, proofTextOrMsg) = Sledgehammer.run(state)
+        assert(outcome == Sledgehammer.Outcomes.Some)
+        assert(proofTextOrMsg.startsWith("by "))
+        // "by (simp add: assms effect__strips_def effect_to_assignments_def)"
+        state = IsabelleSession.step(proofTextOrMsg, state)
+        assert(state.isTheoryMode && state.proofStateDescription == "")
     }
   }
 
@@ -72,30 +75,32 @@ class SledgehammerTests extends TestEnvironment {
     """
     // by (simp add: meld_def meldUniq_xlate uniqify_xlate SkewBinomialHeapStruc.meld_def)
 
-    withIsabelle(afpDir / "Binomial-Heaps" / "SkewBinomialHeap.thy") { session =>
-      implicit val isabelle = session.isabelle
+    withIsabelle(afpDir / "Binomial-Heaps" / "SkewBinomialHeap.thy") {
+      (session: IsabelleSession, parsedTheory: ParsedTheory) =>
+        implicit val isabelle = session.isabelle
+        implicit val ec       = session.ec
 
-      var state = session.parsedTheory.executeUntil(firstLemma, inclusive = false, nDebug = 2)
+        var state = parsedTheory.executeUntil(firstLemma, inclusive = false, nDebug = 2)
 
-      state = session.step(firstLemma, state)
-      state = session.step(firstProof, state)
+        state = IsabelleSession.step(firstLemma, state)
+        state = IsabelleSession.step(firstProof, state)
 
-      if (true) {
-        var stateBad = session.step(hammerLemma, state)
-        assert(stateBad.isProofMode && stateBad.proofStateDescription.contains("(1 subgoal"))
-        val (outcome, proofTextOrMsg) = Sledgehammer.run(stateBad)
-        assert(outcome == Sledgehammer.Outcomes.Timeout)
-      }
+        if (true) {
+          var stateBad = IsabelleSession.step(hammerLemma, state)
+          assert(stateBad.isProofMode && stateBad.proofStateDescription.contains("(1 subgoal"))
+          val (outcome, proofTextOrMsg) = Sledgehammer.run(stateBad)
+          assert(outcome == Sledgehammer.Outcomes.Timeout)
+        }
 
-      state = session.step(secondLemma, state)
-      state = session.step(secondProof, state)
-      state = session.step(hammerLemma, state)
+        state = IsabelleSession.step(secondLemma, state)
+        state = IsabelleSession.step(secondProof, state)
+        state = IsabelleSession.step(hammerLemma, state)
 
-      val (outcome, proofTextOrMsg) = Sledgehammer.run(state)
-      assert(outcome == Sledgehammer.Outcomes.Some)
-      assert(proofTextOrMsg.startsWith("by "))
-      state = session.step(proofTextOrMsg, state)
-      assert(state.isTheoryMode && state.proofStateDescription == "")
+        val (outcome, proofTextOrMsg) = Sledgehammer.run(state)
+        assert(outcome == Sledgehammer.Outcomes.Some)
+        assert(proofTextOrMsg.startsWith("by "))
+        state = IsabelleSession.step(proofTextOrMsg, state)
+        assert(state.isTheoryMode && state.proofStateDescription == "")
     }
   }
 }

@@ -14,6 +14,8 @@ import org.checkerframework.checker.units.qual
 case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) extends cask.Routes {
   var session: IsabelleSession   = null
   var parsedTheory: ParsedTheory = null
+  // Remembering states by name for the API.
+  var stateMap: Map[String, ToplevelState] = null
 
   // A dummy endpoint to just check if the server is running.
   @cask.get("/")
@@ -37,6 +39,7 @@ case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) exte
       )
       implicit val isabelle = session.isabelle
       parsedTheory = new ParsedTheory(os.Path(theoryPath), sessionName, debug = true)
+      stateMap = Map()
     } catch {
       case e: Throwable => {
         val msg = "Error creating IsabelleSession (probably in begin_theory): " + exceptionMsg(e)
@@ -47,11 +50,9 @@ case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) exte
 
     try {
       println("openIsabelleSession 2: execute")
-      val state = parsedTheory.executeUntil(target, inclusive = false)
-      println("proofState=" + state.proofStateDescription(session.isabelle))
-      println("openIsabelleSession 3: register_tls")
-      session.register_tls("default", state)
-      println("openIsabelleSession 4: done.")
+      val state = parsedTheory.executeUntil(target, inclusive = false, nDebug = 3)
+      stateMap += ("default" -> state)
+      println("openIsabelleSession 3: done.")
       return "success"
     } catch {
       case e: Throwable => {
@@ -67,13 +68,14 @@ case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) exte
     var r = session.close()
     session = null
     parsedTheory = null
+    stateMap = null
     r
   }
 
   @cask.postJson("/step")
   def step(state_name: String, action: String, new_state_name: String): ujson.Obj = {
     var timeout: Duration        = 2.seconds
-    val old_state: ToplevelState = session.retrieve_tls(state_name)
+    val old_state: ToplevelState = stateMap(state_name)
     var actual_action: String    = action
     var hammered: Boolean        = false
 
@@ -112,7 +114,7 @@ case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) exte
       val new_state: ToplevelState    = IsabelleSession.step(actual_action, old_state, timeout)
       // println("New state: " + session.getStateString(new_state))
 
-      session.register_tls(name = new_state_name, tls = new_state)
+      stateMap += (new_state_name -> new_state)
 
       var state_string: String = new_state.proofStateDescription
       if (hammered) {
