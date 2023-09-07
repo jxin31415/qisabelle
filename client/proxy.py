@@ -1,59 +1,73 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import requests
 from typing_extensions import Self
 
+JSON = dict[str, Any]
+
 
 class QIsabelleProxy:
-    """Class for making calls to QIsabelle server."""
+    """A proxy object for a QIsabelle server: a class for making calls to the server."""
 
     def __init__(
         self,
-        context_file: Path,
-        working_directory: Path,
+        theory_path: Path,
         target: str,
+        working_directory: Optional[Path] = None,
         port: int = 17000,
         debug: bool = True,
     ):
         self.port = port
         self.debug = debug
-        print("Init..")
+        if debug:
+            print("QIsabelleProxy initializing..")
         r = self._post(
             "/openIsabelleSession",
             {
-                "workingDir": str(working_directory),
-                "theoryPath": str(context_file),
+                "workingDir": str(working_directory or theory_path.parent),
+                "theoryPath": str(theory_path),
                 "target": target,
             },
         )
-        assert r.json() == "success", r.text
-        print("Init done.")
+        assert r == {"success": "success"}, r
+        if debug:
+            print("QIsabelleProxy initialized.")
 
-    def _post(self, path: str, json_data: Optional[dict[str, Any]] = None) -> requests.Response:
+    def _post(self, path: str, json_data: Optional[dict[str, Any]] = None) -> JSON:
         if self.debug:
             print(f"Request to http://localhost:{self.port}{path} with data={json_data}")
         if json_data is None:
             json_data = {}
-        r = requests.post(f"http://localhost:{self.port}{path}", json=json_data)
-        r.raise_for_status()
-        return r
+        response = requests.post(f"http://localhost:{self.port}{path}", json=json_data)
+        response.raise_for_status()
+        result = response.json()
+        assert isinstance(result, dict)
+        if "error" in result:
+            raise RuntimeError(result["error"] + "\nTraceback:\n" + result["traceback"])
+        return cast(JSON, result)
 
     def __enter__(self) -> Self:
         return self
 
     def __exit__(self, _exc_type: Any, _exc_value: Any, _traceback: Any) -> None:
         r = self._post("/closeIsabelleSession")
-        assert r.json() == "Closed", r.text
+        assert r == {"success": "Closed"}, r
 
-    def step_tls(self, action: str, tls_name: str, new_name: str) -> tuple[str, bool]:
+    def execute(self, state_name: str, isar_code: str, new_state_name: str) -> tuple[bool, str]:
         r = self._post(
-            "/step", {"state_name": tls_name, "action": action, "new_state_name": new_name}
+            "/execute",
+            {"stateName": state_name, "isarCode": isar_code, "newStateName": new_state_name},
         )
-        obs_string = r.json()["state_string"]
-        if "error" in obs_string:
-            raise RuntimeError(obs_string)
-        done = r.json()["done"]
-        return obs_string, done
+        return cast(bool, r["proofDone"]), cast(str, r["proofState"])
+
+    def hammer(
+        self, state_name: str, added_facts: list[str] = [], deleted_facts: list[str] = []
+    ) -> str:
+        r = self._post(
+            "/hammer",
+            {"stateName": state_name, "addedFacts": added_facts, "deletedFacts": deleted_facts},
+        )
+        return cast(str, r["proof"])

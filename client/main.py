@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import heapq
 import re
 import time
@@ -23,7 +24,8 @@ def main() -> None:
 
     tests_dir = ROOT_DIR / "Portal-to-ISAbelle" / "universal_test_theorems"
     print(f"Loading tests from {tests_dir}...")
-    test_files = sorted(tests_dir.glob("quick*.json"), key=_numeric_sort_key)  # [:1]
+    test_files = sorted(tests_dir.glob("quick*.json"), key=_numeric_sort_key)
+    # test_files = test_files[:1]
     tests = load_test_cases(test_files, afp_dir=ROOT_DIR / "afp-2023-03-16")
     print(f"Loaded {len(tests)} tests.")
 
@@ -31,51 +33,49 @@ def main() -> None:
         test_qisabelle_client()
         return
 
-    evaluate_model(
-        DummyHammerModel(),
-        tests,
-        server_afp_dir=Path("/afp/"),
-    )
+    evaluate_model(DummyHammerModel(), tests, server_afp_dir=Path("/afp/"))
 
 
 def test_qisabelle_client() -> None:
     p = Path("/afp/thys/Real_Impl/Real_Impl_Auxiliary.thy")
-    # p = Path("/afp/thys/Valuation/Valuation1.thy")
-    with QIsabelleProxy(working_directory=p.parent, context_file=p, target="end") as proxy:
-        print("-" * 50, "A")
-        print(
-            proxy.step_tls(
-                'lemma primes_infinite: "\\<not> (finite {(p::nat). prime p})"', "default", "test"
-            )
-        )
-        print("-" * 50, "B")
-        print(proxy.step_tls("sledgehammer", "test", "test1"))
-        print("-" * 50, "C")
-        print(proxy.step_tls("normalhammer", "test", "test1"))
-        # print(proxy.step_tls('delhammer primes_infinite', 'test', 'test2'))
-        # print(proxy.step_tls('delhammer primes_infinite,bigger_prime', 'test', 'test3'))
+    with QIsabelleProxy(theory_path=p, target="end") as proxy:
+        print("lemma".center(100, "-"))
+        lemma = 'lemma primes_infinite: "\\<not> (finite {(p::nat). prime p})"'
+        proof_done, proof_state = proxy.execute("default", lemma, "test")
+        print(f"{proof_done=}, {proof_state=}")
+        assert not proof_done
+        assert proof_state.startswith("proof (prove)\ngoal (1 subgoal):\n")
+
+        print("call hammer".center(100, "-"))
+        proof = proxy.hammer("test")
+        print(f"{proof=}")
+
+        print("execute proof".center(100, "-"))
+        proof_done, proof_state = proxy.execute("test", proof, "test2")
+        assert proof_done and proof_state == ""
 
 
 def evaluate_model(model: Model, tests: list[TestCase], server_afp_dir: Path) -> None:
     summary: dict[str, int] = defaultdict(int)
-    for test_case in tests:
-        print("\n\n\n", "%" * 100)
+    for i, test_case in enumerate(tests):
+        print("\n\n\n" + "%" * 100)
         print(f"%%% Test case {test_case.name}, thy file: {test_case.thy_file}")
-        print("%", test_case.lemma_statement.strip().replace("\n", "\n% "))
+        print(" Lemma statement ".center(100, "%"))
+        print("\t" + test_case.lemma_statement.strip().replace("\n", "\n\t"))
         print()
 
-        thy_file = server_afp_dir / "thys" / test_case.thy_file
+        theory_path = server_afp_dir / "thys" / test_case.thy_file
         try:
+            print(" Server init and theory load ".center(100, "%"))
             with QIsabelleProxy(
-                working_directory=thy_file.parent,
-                context_file=thy_file,
-                target=test_case.lemma_statement.strip(),
+                theory_path=theory_path,
+                target=test_case.lemma_statement,
             ) as proxy:
-                # r = True
                 r = run_model_on_test_case(model, test_case.lemma_statement, proxy)
             result = "success" if r else "failure"
         except Exception as e:
-            print(repr(e))
+            print(" Exception ".center(100, "%"))
+            print("\t" + str(e).replace("\n", "\n\t"))
             if "undefined entry for theory" in repr(e):
                 result = "undefined"
             elif "did not find the text" in repr(e):
@@ -84,14 +84,14 @@ def evaluate_model(model: Model, tests: list[TestCase], server_afp_dir: Path) ->
                 result = "no_such_file"
             elif "NoSuchFileException" in repr(e):
                 result = "no_such_file2"
-            elif "Hammer failed:Timed out" in repr(e):
-                # 'Error during hammer: java.lang.Exception: Hammer failed:Timed out'
-                result = "timeout"
-            elif "Future timed out after" in repr(e):
-                # Error during hammer: java.util.concurrent.TimeoutException: Future timed out after [40000 milliseconds]
-                result = "timeout2"
-            elif "IsabelleMLException: Timeout after" in repr(e):
-                result = "timeout3"
+            elif "Sledgehammer timeout: Timed out" in repr(e):
+                result = "timeout-soft"
+            elif "Sledgehammer timeout: Mid timeout exceeded" in repr(e):
+                result = "timeout-mid"
+            elif "Sledgehammer timeout: Hard timeout exceeded" in repr(e):
+                result = "timeout-hard"
+            elif "IsabelleMLException: Timeout" in repr(e):
+                result = "execution-timeout"
             else:
                 # %%% Test case quick_test_name_298, thy file: Splay_Tree/Splay_Tree.thy
                 # %%% Test case quick_test_name_219, thy file: Word_Lib/Word_Lemmas.thy
@@ -101,53 +101,71 @@ def evaluate_model(model: Model, tests: list[TestCase], server_afp_dir: Path) ->
                 result = "exception"
 
         summary[result] += 1
-        print("$" * 100, f"{result} ({summary} / {len(tests)}).")
+        print(f" {result} ".center(100, "$"))
+        print(f"Did {i + 1} / {len(tests)} tests so far:", dict(summary.items()))
     print(f"End of evaluation: {summary} / {len(tests)}")
 
 
 def run_model_on_test_case(model: Model, lemma_statement: str, proxy: QIsabelleProxy) -> bool:
     # BestFS, following https://arxiv.org/pdf/2009.03393.pdf:
     # They actually retry everything 4 times.
+    PROOF_SEARCH_MAX_TIME = 500.0  # float seconds
+    MAX_N_EXPANSIONS = 128
+    # TODO limit number of queries to model: 300?
+
+    print(" Execute lemma statement ".center(100, "%"))
     try:
-        state, _ = proxy.step_tls(lemma_statement, "default", "s")
+        proof_done, proof_state = proxy.execute("default", lemma_statement, "s")
+        assert not proof_done
     except RuntimeError as e:
         raise
-        print(e)
-        return False
-    print("%" * 100, f"Starting proof search with {lemma_statement=}, {state=}")
+        # print(e)
+        # return False
+    print(" Proof state ".center(100, "%"))
+    print("\t" + proof_state.strip().replace("\n", "\n\t"))
+
     # Priority queue where scores are cumulative minus-log-probs
     # (the smaller the score, the larger the probability predicted for the state).
-    pqueue: list[tuple[float, str, str, str]] = [(0, lemma_statement, state, "s")]
-    max_n_expansions = 128
-    # TODO timeout 10s on proof step (in PISA?)
-    # TODO limit number of queries to model: 300?
-    PROOF_SEARCH_MAX_TIME = 500.0  # float seconds
-    start_time = time.time()
-    while pqueue and max_n_expansions > 0 and time.time() - start_time < PROOF_SEARCH_MAX_TIME:
-        max_n_expansions -= 1
-        score, prev_proof_step, state, state_name = heapq.heappop(pqueue)
-        print("%" * 100, f"Pop {score=}, {prev_proof_step=}, {state=}")
+    pqueue: list[tuple[float, str, str, str]] = [(0, lemma_statement, proof_state, "s")]
+    n_expansions_left = MAX_N_EXPANSIONS
+
+    end_time = time.time() + PROOF_SEARCH_MAX_TIME
+    while pqueue and n_expansions_left > 0 and time.time() < end_time:
+        n_expansions_left -= 1
+        # Pop:
+        score, prev_proof_step, proof_state, state_name = heapq.heappop(pqueue)
+        print(" Pop ".center(100, "%"))
+        print(f"{score=}, {state_name=}")
+
         # Expand:
-        for i, (proof_step, subscore) in enumerate(model(prev_proof_step, state)):
-            print("%" * 100, f"Model gave {proof_step=}, {subscore=}")
+        generated_steps = model(prev_proof_step, proof_state)
+        for i, (proof_step, subscore) in enumerate(generated_steps):
+            print(f" Model gave (with {subscore=}) ".center(100, "%"))
+            print("\t" + proof_step.strip().replace("\n", "\n\t"))
             new_state_name = f"{state_name}.{i}"
             try:
-                new_state, done = proxy.step_tls(proof_step, state_name, new_state_name)
-                if new_state.lower().startswith("error"):
-                    raise RuntimeError(new_state)
+                if proof_step.strip() == "normalhammer":
+                    proof_step = proxy.hammer(state_name)
+                    print(" Hammer gave ".center(100, "%"))
+                    print("\t" + proof_step.strip().replace("\n", "\n\t"))
+                proof_done, new_proof_state = proxy.execute(state_name, proof_step, new_state_name)
             except RuntimeError as e:
                 raise
-                print(e)
-                continue
-            if new_state == state:
-                print("%" * 100, "Which yields same state.")
+                # print(e)
+                # continue
+            print(f" Proof state ({proof_done=}) ".center(100, "%"))
+            print(f"{new_state_name=}")
+            if new_proof_state == proof_state:
+                print("Unchanged :(")
                 continue
             else:
-                print("%" * 100, f"Which yields {new_state=}, {done=}")
-            if done:
+                print("\t" + new_proof_state.strip().replace("\n", "\n\t"))
+            if proof_done:
                 return True
             if len(pqueue) < 32:
-                heapq.heappush(pqueue, (score + subscore, proof_step, new_state, new_state_name))
+                heapq.heappush(
+                    pqueue, (score + subscore, proof_step, new_proof_state, new_state_name)
+                )
     return False
 
 

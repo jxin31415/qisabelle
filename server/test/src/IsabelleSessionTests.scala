@@ -75,24 +75,24 @@ class IsabelleSessionTests extends TestEnvironment {
         assert(stateCommon.isTheoryMode)
 
         // Right: prove first lemma.
-        var stateR = IsabelleSession.step(firstLemma, stateCommon)
+        var stateR = IsabelleSession.parseAndExecute(firstLemma, stateCommon)
         assert(stateR.isProofMode && stateR.proofStateDescription.contains("(1 subgoal"))
-        stateR = IsabelleSession.step(firstProof, stateR)
+        stateR = IsabelleSession.parseAndExecute(firstProof, stateR)
         assert(stateR.isTheoryMode && stateR.proofStateDescription == "")
 
         // Left: attempt to prove second lemma with undefined reference to first.
-        var stateL = IsabelleSession.step(secondLemma, stateCommon)
+        var stateL = IsabelleSession.parseAndExecute(secondLemma, stateCommon)
         assert(stateL.isProofMode && stateL.proofStateDescription.contains("(1 subgoal"))
         val thrown = intercept[IsabelleMLException] {
-          stateL = IsabelleSession.step(secondProof, stateL).force
+          stateL = IsabelleSession.parseAndExecute(secondProof, stateL).force
         }
         val msg = thrown.getMessage()
         assert(msg.contains("Undefined fact") && msg.contains("reverse_conc"))
 
         // Right: prove second lemma from first lemma.
-        stateR = IsabelleSession.step(secondLemma, stateR)
+        stateR = IsabelleSession.parseAndExecute(secondLemma, stateR)
         assert(stateR.isProofMode && stateR.proofStateDescription.contains("(1 subgoal"))
-        stateR = IsabelleSession.step(secondProof, stateR)
+        stateR = IsabelleSession.parseAndExecute(secondProof, stateR)
         assert(stateR.isTheoryMode && stateR.proofStateDescription == "")
     }
   }
@@ -121,29 +121,29 @@ class IsabelleSessionTests extends TestEnvironment {
         assert(stateCommon.isTheoryMode)
 
         // Left: prove dummy first lemma under same name.
-        var stateL = IsabelleSession.step(firstLemmaAlt, stateCommon)
+        var stateL = IsabelleSession.parseAndExecute(firstLemmaAlt, stateCommon)
         assert(stateL.isProofMode && stateL.proofStateDescription.contains("(1 subgoal"))
-        stateL = IsabelleSession.step(firstProofAlt, stateL)
+        stateL = IsabelleSession.parseAndExecute(firstProofAlt, stateL)
         assert(stateL.isTheoryMode && stateL.proofStateDescription == "")
 
         // Right: prove true first lemma.
-        var stateR = IsabelleSession.step(firstLemma, stateCommon)
-        stateR = IsabelleSession.step(firstProof, stateR)
+        var stateR = IsabelleSession.parseAndExecute(firstLemma, stateCommon)
+        stateR = IsabelleSession.parseAndExecute(firstProof, stateR)
         assert(stateR.isTheoryMode && stateR.proofStateDescription == "")
 
         // Left: attempt to prove second lemma from dummy first lemma should fail.
-        stateL = IsabelleSession.step(secondLemma, stateL)
+        stateL = IsabelleSession.parseAndExecute(secondLemma, stateL)
         assert(stateL.isProofMode && stateL.proofStateDescription.contains("(1 subgoal"))
         val thrown = intercept[IsabelleMLException] {
-          stateL = IsabelleSession.step(secondProof, stateL).force
+          stateL = IsabelleSession.parseAndExecute(secondProof, stateL).force
         }
         val msg = thrown.getMessage()
         assert(msg.contains("Failed to finish proof"))
 
         // Right: prove second lemma from first lemma.
-        stateR = IsabelleSession.step(secondLemma, stateR)
+        stateR = IsabelleSession.parseAndExecute(secondLemma, stateR)
         assert(stateR.isProofMode && stateR.proofStateDescription.contains("(1 subgoal"))
-        stateR = IsabelleSession.step(secondProof, stateR)
+        stateR = IsabelleSession.parseAndExecute(secondProof, stateR)
         assert(stateR.isTheoryMode && stateR.proofStateDescription == "")
     }
   }

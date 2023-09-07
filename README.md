@@ -22,11 +22,11 @@ When pre-building AFP, system heaps should be writeable, and AFP code unfortunat
     cd qisabelle
     docker build -f ServerDockerfile -t qisabelle-server .
     # Choose, download and unpack a pre-built AFP heap from https://u363828-sub1:7K5XEQ7RDqvbjY8v@u363828-sub1.your-storagebox.de/
-    # Note that a 3.5G heap.tar.br (compressed with brotli max settings) is 39G unpacked (11G gzipped).
+    # Note that a 3.5GB heap.tar.br (compressed with brotli max settings) is 39GB after unpacking (11GB gzipped).
     curl -u u363828-sub1:7K5XEQ7RDqvbjY8v https://u363828-sub1.your-storagebox.de/Isabelle2022_afp-2023-03-16.tar.br -O
     brotli -d Isabelle2022_afp-2023-03-16.tar.br
     tar -xf Isabelle2022_afp-2023-03-16.tar
-    # Build all of AFP as a system heap. This takes ~5h on a powerful server.
+    # Alternatively, build all of AFP as a system heap. This takes ~5h on a powerful server.
     # Timeout errors are normal, just repeat the command to retry failed sessions.
     # You can Ctrl+C and restart to continue at any time.
     docker run -it --rm \
@@ -48,7 +48,7 @@ When pre-building AFP, system heaps should be writeable, and AFP code unfortunat
     # Start the client, in another console:
     python -um client.main | tee client.log
 ```
-Accordign to the paper, it should give ~154 out of 600 tests passing.
+According to the paper, it should give ~154 out of 600 tests passing.
 Before fixing theories, on default settings, this gave me 161 OK, 63 AssertionError (mostly 'Theory loader: undefined entry for theory'), 376 timeouts out of 600 tests.
 Currently, on default settings, this gives me 189 success, 189+202 timeouts, 1 no_such_file,  and 19 exceptions (of which some are ML timeouts) out of 600 tests.
 With a larger external timeout of 60s: {'timeout': 315, 'success': 203, 'timeout2': 64, 'no_such_file2': 1, 'timeout3': 6, 'exception': 11})

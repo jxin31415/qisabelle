@@ -38,7 +38,10 @@ class ParsedTheory(
   val masterDir: os.Path = path / os.up
 
   val theoryHeader: TheoryHeader = TheoryHeader.read(fileContent)
-  if (debug) println("ParsedTheory header=" + theoryHeader)
+  if (debug)
+    println(
+      "ParsedTheory header=" + theoryHeader.name + " imports=" + theoryHeader.imports.mkString(",")
+    )
   if (theoryHeader.name != path.baseName)
     println(s"Warning: theory name (${theoryHeader.name}) != filename (${path.baseName}).")
 

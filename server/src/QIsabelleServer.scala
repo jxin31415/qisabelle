@@ -12,19 +12,44 @@ import de.unruh.isabelle.mlvalue.Implicits._
 import org.checkerframework.checker.units.qual
 
 case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) extends cask.Routes {
+  // These are the timeouts originally used in PISA.
+  val perTransitionTimeout: Duration = 10.seconds
+  val executionTimeout: Duration  = Duration.Inf // Does not include time of running sledgehammer.
+  val softHammerTimeout: Duration = 30.seconds
+  val midHammerTimeout: Duration  = 35.seconds
+  val hardHammerTimeout: Duration = 40.seconds
+
   var session: IsabelleSession   = null
   var parsedTheory: ParsedTheory = null
-  // Remembering states by name for the API.
+
+  /** Remembering states by name for the API. */
   var stateMap: Map[String, ToplevelState] = null
 
-  // A dummy endpoint to just check if the server is running.
+  /** A dummy endpoint to just check if the server is running. */
   @cask.get("/")
   def hello() = {
     "Hello from QIsabelle"
   }
 
+  /** Start an Isabelle process and load a given theory up until a given transition.
+    *
+    * @param workingDir
+    *   The working directory of the Isabelle process. Doesn't influence anything important anymore;
+    *   it would be used for resolving relative theory paths for theories that are not found
+    *   pre-built in the session heap, but we throw an exception if that happens anyway. You can use
+    *   the directory containing the theory file, for example.
+    * @param theoryPath
+    *   Path to .thy file to partially load.
+    * @param target
+    *   Transition (as Isar code) at which to stop loading the theory.
+    *
+    * Creates a state named "default" which executes the theory up to `target` (exclusive).
+    *
+    * @return
+    *   {"success": "success"} or {"error": str, "traceback": str}
+    */
   @cask.postJson("/openIsabelleSession")
-  def openIsabelleSession(workingDir: String, theoryPath: String, target: String): String = {
+  def openIsabelleSession(workingDir: String, theoryPath: String, target: String): ujson.Obj = {
     println("openIsabelleSession 1: new IsabelleSession")
     try {
       val sessionName  = IsabelleSession.guessSessionName(os.Path(theoryPath))
@@ -39,156 +64,112 @@ case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) exte
       )
       implicit val isabelle = session.isabelle
       parsedTheory = new ParsedTheory(os.Path(theoryPath), sessionName, debug = true)
-      stateMap = Map()
-    } catch {
-      case e: Throwable => {
-        val msg = "Error creating IsabelleSession (probably in begin_theory): " + exceptionMsg(e)
-        println(msg)
-        return msg
-      }
-    }
 
-    try {
       println("openIsabelleSession 2: execute")
       val state = parsedTheory.executeUntil(target, inclusive = false, nDebug = 3)
+      stateMap = Map()
       stateMap += ("default" -> state)
       println("openIsabelleSession 3: done.")
-      return "success"
+      return ujson.Obj("success" -> "success")
     } catch {
-      case e: Throwable => {
-        val msg = "Error in session.execute: " + exceptionMsg(e)
-        println(msg)
-        return msg
-      }
+      case e: Throwable => { closeIsabelleSession(); exceptionJson(e) }
     }
   }
 
+  /** Stop the Isabelle process and clear the state map and theory from memory.
+    *
+    * @return
+    *   {"success": "Closed"} or {"error": str, "traceback": ""}
+    */
   @cask.postJson("/closeIsabelleSession")
-  def closeIsabelleSession() = {
-    var r = session.close()
+  def closeIsabelleSession(): ujson.Obj = {
+    if (session == null)
+      return ujson.Obj("error" -> "Already closed", "traceback" -> "")
+    session.close()
     session = null
     parsedTheory = null
     stateMap = null
-    r
+    return ujson.Obj("success" -> "Closed")
   }
 
-  @cask.postJson("/step")
-  def step(state_name: String, action: String, new_state_name: String): ujson.Obj = {
-    var timeout: Duration        = 2.seconds
-    val old_state: ToplevelState = stateMap(state_name)
-    var actual_action: String    = action
-    var hammered: Boolean        = false
-
-    if (action.startsWith("normalhammer")) {
-      val s: String = action.split("normalhammer").drop(1).mkString("").trim
-      val add_names: List[String] = {
-        if (s contains "<add>") {
-          s.split("<add>")(1).split(",").toList
-        } else List[String]()
-      }
-      val del_names: List[String] = {
-        if (s contains "<del>") {
-          s.split("<del>")(1).split(",").toList
-        } else List[String]()
-      }
-      val partial_hammer = (state: ToplevelState, timeout: Duration) => {
-        implicit val isabelle = session.isabelle
-        Sledgehammer.run(state, add_names, del_names, timeout)
-      }
-      try {
-        actual_action = hammer_actual_step(old_state, new_state_name, partial_hammer)
-      } catch {
-        case e: Throwable => {
-          println("Error during hammer: " + e.toString())
-          return ujson.Obj(
-            "state_string" -> ("Error during hammer: " + e.toString()),
-            "done"         -> false
-          )
-        }
-      }
-      hammered = true
-    }
+  /** Parse an execute Isar code on a given state, save the resulting state under a new name.
+    *
+    * @param stateName
+    *   Name of state to execute on.
+    * @param isarCode
+    *   Isar code to execute (can be multiple transitions, like lemma statements or proofs).
+    * @param newStateName
+    *   Name of new state to save the result under.
+    * @return
+    *   - On successful execuction, a JSON object with keys:
+    *     - proofState: like "proof (prove) goal (1 subgoal): ..." (empty if not in proof mode).
+    *     - proofDone: true if proof level is 0 (equivalently: not in proof nor skipped-proof mode).
+    *   - On error: {"error": str, "traceback": str}
+    */
+  @cask.postJson("/execute")
+  def execute(stateName: String, isarCode: String, newStateName: String): ujson.Obj = {
+    val state: ToplevelState = stateMap(stateName)
+    implicit val isabelle    = session.isabelle
+    implicit val ec          = session.ec
 
     try {
-      implicit val isabelle: Isabelle = session.isabelle
-      val new_state: ToplevelState    = IsabelleSession.step(actual_action, old_state, timeout)
-      // println("New state: " + session.getStateString(new_state))
+      val newState: ToplevelState =
+        IsabelleSession.parseAndExecute(
+          isarCode,
+          state,
+          perTransitionTimeout = perTransitionTimeout,
+          totalTimeout = executionTimeout,
+          debug = true
+        )
+      stateMap += (newStateName -> newState)
 
-      stateMap += (new_state_name -> new_state)
-
-      var state_string: String = new_state.proofStateDescription
-      if (hammered) {
-        state_string = s"(* $action *) $state_string"
-      }
-      var done: Boolean = (new_state.proofLevel == 0)
-      ujson.Obj(
-        "state_string" -> state_string,
-        "done"         -> done
+      return ujson.Obj(
+        "proofState" -> newState.proofStateDescription,
+        "proofDone"  -> (newState.proofLevel == 0)
       )
     } catch {
-      case e: Throwable => {
-        println(("Error during step: " + e.toString()))
-        return ujson.Obj(
-          "state_string" -> ("Error during step: " + e.toString()),
-          "done"         -> false
-        )
-      }
+      case e: Throwable => exceptionJson(e)
     }
   }
 
-  def hammer_actual_step(
-      old_state: ToplevelState,
-      new_name: String,
-      hammer_method: (
-          ToplevelState,
-          Duration
-      ) => (Sledgehammer.Outcomes.Outcome, String)
-  ): String = {
-    // If found a sledgehammer step, execute it differently
-    var raw_hammer_strings = List[String]()
-    val actual_step: String = { // try {
-      val (outcome, proof_text_or_msg) =
-        hammer_method(old_state, 60.seconds)
-      if (outcome == Sledgehammer.Outcomes.Some) {
-        proof_text_or_msg
-      } else {
-        val s = "Hammer failed:" + proof_text_or_msg
-        println(s)
-        throw new Exception(s)
-      }
-      // } catch {
-      //   case e: Exception => {
-      //     println("Exception while trying to run sledgehammer: " + e.getMessage)
-      //     "Error: " + e.getMessage
-      //   }
+  /** Run Sledgehammer on a given state.
+    *
+    * @param stateName
+    *   Name of state to run Sledgehammer on (on first subgoal, state must be in proof mode).
+    * @param addedFacts
+    *   List of fact names to suggest to Sledgehammer.
+    * @param deletedFacts
+    *   List of fact names to forbid to Sledgehammer.
+    * @return
+    *   - On success: {"proof": proof}; proof is e.g. "using .. by ..."; the proof is not guaranteed
+    *     to be correct.
+    *   - On error: {"error": str, "traceback": str}; common errors start with "Sledgehammer
+    *     timeout" or "Sledgehammer no proof found".
+    */
+  @cask.postJson("/hammer")
+  def hammer(stateName: String, addedFacts: List[String], deletedFacts: List[String]): ujson.Obj = {
+    val state: ToplevelState = stateMap(stateName)
+    implicit val isabelle    = session.isabelle
+
+    try {
+      val proof = Sledgehammer.findProofOrThrow(
+        state,
+        addedFacts = addedFacts,
+        deletedFacts = deletedFacts,
+        softTimeout = softHammerTimeout,
+        midTimeout = midHammerTimeout,
+        hardTimeout = hardHammerTimeout
+      )
+      return ujson.Obj("proof" -> proof)
+    } catch {
+      case e: Throwable => exceptionJson(e)
     }
-    // println(actual_step)
-    assert(actual_step.trim.nonEmpty, "Empty hammer string")
-    actual_step
   }
 
-// === Examples of parameterized HTTP endpoints in cask. ===
-//   @cask.post("/do-thing")
-//   def doThing(request: cask.Request) = {
-//     request.text().reverse
-//   }
-//
-//   @cask.get("/user/:userName")
-//   def showUserProfile(userName: String) = {
-//     s"User $userName"
-//   }
-//
-//   @cask.postJson("/form")  // Expects a dict with keys value1, value2.
-//   def formEndpointObj(value1: String, value2: Seq[Int]) = {
-//     ujson.Obj(
-//       "value1" -> value1.value,
-//       "value2" -> value2
-//     )
-//     // cask.Abort(401)
-//   }
-
-  def exceptionMsg(e: Throwable): String = {
-    e.toString() + "\n" + e.getStackTrace().mkString("\n")
+  def exceptionJson(e: Throwable): ujson.Obj = {
+    println(e.toString())
+    println("\t\t" + e.getStackTrace().mkString("\n\t\t"))
+    ujson.Obj("error" -> e.toString(), "traceback" -> e.getStackTrace().mkString("\n"))
   }
 
   initialize()

@@ -65,52 +65,69 @@ object IsabelleSession {
     }
   }
 
-  def getPathPrefix(path: os.Path, n_segments: Int): os.Path = {
+  protected def getPathPrefix(path: os.Path, n_segments: Int): os.Path = {
     os.Path("/" + path.segments.take(n_segments).mkString("/"))
   }
 
+  /** Parse and execute Isar code.
+    *
+    * @param isarCode
+    *   Isar "outer syntax". Can include many transitions (lemma statements, proof steps).
+    * @param initState
+    *   State to apply transitions to.
+    * @param perTransitionTimeout
+    *   Timeout for each transition; for some reason it gets rounded up to full seconds by Isabelle,
+    *   see `Transition.execute`.
+    * @param totalTimeout
+    *   Hard timeout for the total of all the parsing and transition execution.
+    * @param debug
+    *   Whether to print debug output, including each transition and each resulting state.
+    */
   @throws(classOf[IsabelleMLException])
   @throws(classOf[TimeoutException])
-  def step(
+  def parseAndExecute(
       isarCode: String,
       initState: ToplevelState,
-      timeout: Duration = Duration.Inf,
+      perTransitionTimeout: Duration = Duration.Inf,
+      totalTimeout: Duration = Duration.Inf,
       debug: Boolean = true
   )(implicit isabelle: Isabelle, ec: ExecutionContext): ToplevelState = {
-    if (debug) println("Step: begin")
+    if (debug) println("parseAndExecute: begin")
     var state: ToplevelState = initState
     val theory               = initState.theory
     val f_st = Future.apply {
       blocking {
-        if (debug) println("Step: parsing")
+        if (debug) println("parseAndExecute: parsing")
         val transitions = Transition.parseOuterSyntax(theory, isarCode)
-        if (debug) println("Step: execute")
+        if (debug) println("parseAndExecute: execute")
         for ((transition, text) <- transitions) {
           if (debug) println(ParsedTheory.describeTransition(transition, text))
           if (!text.trim.isEmpty) {
-            state = transition.execute(state, timeout)
+            state = transition.execute(state, perTransitionTimeout)
             if (debug) println(ParsedTheory.describeState(state))
           }
         }
       }
     }
-    if (debug) println("Step: await")
-
-    // TODO test if this allows API to respond - I'm guessing it's a useless future.
-    Await.result(f_st, Duration.Inf)
-    state
+    if (debug) println("parseAndExecute: await")
+    Await.result(f_st, totalTimeout)
+    return state
   }
-
 }
 
 /** @param isabelleDir
   *   Path to the Isabelle distribution directory (should contain bin/isabelle).
   * @param sessionName
-  *   Name of Isabelle session (as defined by ROOT files) whose heap we will load.
+  *   Name of Isabelle session (as defined by ROOT files) whose heap (a session state cache) we will
+  *   load. If you just use 'HOL', loading a theory will take a long time, building all its imports.
+  *   Loading a heap after the process started seems to be impossible, see
+  *   `Isabelle/src/Pure/ML/ml_process.scala`.
   * @param sessionRoots
   *   Directories in which Isabelle can find sessions (using ROOT and ROOTS files).
   * @param workingDir
-  * @param useSledgehammer
+  *   Working directory for the Isabelle process. This doesn't influence a lot, mostly how relative
+  *   paths are resolved for imports that are not found in the heap. It could be changed later if
+  *   you need to.
   * @param debug
   */
 class IsabelleSession(
@@ -118,7 +135,6 @@ class IsabelleSession(
     val sessionName: String,
     val sessionRoots: Seq[os.Path],
     val workingDir: os.Path,
-    val useSledgehammer: Boolean = false,
     var debug: Boolean = false
 ) {
   if (debug) {
@@ -136,10 +152,6 @@ class IsabelleSession(
     sessionRoots = sessionRoots.map(_.toNIO),
     // Use default '.isabelle' dir to store heaps in:
     userDir = None, // Some(Path.of("/tmp/qisabelle/.isabelle")),
-    // Session whose heap image (a state cache) we load in Isabelle.
-    // If I just use 'HOL', Resources.begin_theory takes a long time.
-    // Loading a heap after the process started seems to be impossible,
-    // see Isabelle/src/Pure/ML/ml_process.scala.
     logic = sessionName,
     // The working dir doesn't seem to matter anymore (at least not for theory imports).
     workingDirectory = workingDir.toNIO,
@@ -158,8 +170,7 @@ class IsabelleSession(
   Sledgehammer.Ops.runSledgehammer.force.retrieveNow
   if (debug) println("HammerCompilation: end")
 
-  def close(): String = {
+  def close(): Unit = {
     isabelle.destroy()
-    return "Closed"
   }
 }

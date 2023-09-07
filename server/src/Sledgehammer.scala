@@ -32,34 +32,34 @@ object Sledgehammer extends OperationCollection {
   /** Run Slegehammer (ML `run_sledgehammer`) on a state to try solving the first goal.
     *
     * @param state
-    * @param addedNames
-    * @param deletedNames
+    *   A state (in proof mode).
+    * @param addedFacts
+    *   A list of fact names strongly suggested to Sledgehammer.
+    * @param deletedFacts
+    *   A list of fact names forbidden for Sledgehammer.
     * @param softTimeout
     *   This is a suggestion for sledgehammer; it must be significantly lower than midTimeout to
     *   give provers a chance of returning. The provers will actually run for ~10+s longer. Note
-    *   that the provers may well succeed sooner if you give them a smaller timeout. ------------
-    *   (Experiments: 1->9, 10->19, 20->30, 40->51, 100->116, 200->224)
+    *   that the provers may actually succeed sooner if you give them a smaller timeout.
     * @param midTimeout
     *   This is an ML timeout; if not given, the ML process would continue running provers even when
     *   scala timed-out and discarder the result handle. Not very precise, it will actually take a
     *   few seconds longer. Make this equal to hardTimeout, or smaller to avoid waiting on ML the
     *   next time scala calls it. It's not bulletproof though, stuff in the ML process may continue
-    *   after it timed out. ------------------------------------------------------------------------
-    *   (Experiments: 1->1.2, 2->2.9, 10->14, 20>26, 40->46, 100->108, 200->209)
+    *   after it timed out.
     * @param hardTimeout
     *   This is a hard, precise timeout (but it doesn't kill the ML prover processes).
-    *
     * @return
-    *   (outcome, message), where message is an Isar proof if outcome is success ("Some"). The Isar
-    *   proof cannot be trusted.
+    *   (outcome, message), where message is an Isar proof if outcome is success ("Some"). The proof
+    *   is not guaranteed to be correct.
     */
   def run(
       state: ToplevelState,
-      addedNames: List[String] = List(),
-      deletedNames: List[String] = List(),
+      addedFacts: List[String] = List(),
+      deletedFacts: List[String] = List(),
       softTimeout: Duration = 30.seconds,
       midTimeout: Duration = 35.seconds,
-      hardTimeout: Duration = 35.seconds,
+      hardTimeout: Duration = 40.seconds,
       debug: Boolean = true
   )(implicit isabelle: Isabelle): (Outcomes.Outcome, String) = {
     if (debug) println("Hammer: start")
@@ -70,8 +70,8 @@ object Sledgehammer extends OperationCollection {
           Ops
             .runSledgehammer(
               state,
-              addedNames,
-              deletedNames,
+              addedFacts,
+              deletedFacts,
               softTimeout.toMillis.max(1),
               midTimeout.toMillis.max(1)
             )
@@ -79,14 +79,13 @@ object Sledgehammer extends OperationCollection {
           hardTimeout
         )
       } catch {
-
         case e: TimeoutException => {
           ("timeout", "Hard timeout exceeded: " + e.getMessage())
           // "Future timed out after [20000 milliseconds]":
         }
         case e: IsabelleMLException => {
           if (e.getMessage() contains "Timeout")
-            ("timeout", "Mid timeout exceeded: " + e.getMessage()) // "Timeout after 22.012s":
+            ("timeout", "Mid timeout exceeded: " + e.getMessage()) // "Timeout after 22.012s"
           else
             throw e
         }
@@ -101,6 +100,36 @@ object Sledgehammer extends OperationCollection {
     if (debug) println("Hammer: outcome=" + outcome)
     if (debug) println("Hammer: proof/msg=" + proofOrMessage)
     return (outcome, proofOrMessage)
+  }
+
+  /** Same as run(), but always returns a proof, or throws and exception.
+    *
+    * The proof is not guaranteed to be correct.
+    */
+  def findProofOrThrow(
+      state: ToplevelState,
+      addedFacts: List[String] = List(),
+      deletedFacts: List[String] = List(),
+      softTimeout: Duration = 30.seconds,
+      midTimeout: Duration = 35.seconds,
+      hardTimeout: Duration = 40.seconds,
+      debug: Boolean = true
+  )(implicit isabelle: Isabelle): String = {
+    val (outcome, proofOrMessage) =
+      run(state, addedFacts, deletedFacts, softTimeout, midTimeout, hardTimeout, debug)
+    outcome match {
+      case Outcomes.Some =>
+        if (proofOrMessage.trim.nonEmpty) proofOrMessage
+        else throw new Exception("Sledgehammer returned empty proof")
+      case Outcomes.Timeout =>
+        throw new TimeoutException("Sledgehammer timeout: " + proofOrMessage)
+      case Outcomes.ResourcesOut =>
+        throw new Exception("Sledgehammer out of resources: " + proofOrMessage)
+      case Outcomes.None =>
+        throw new Exception("Sledgehammer no proof found: " + proofOrMessage)
+      case Outcomes.Unknown =>
+        throw new Exception("Sledgehammer error: " + proofOrMessage)
+    }
   }
 
   protected val hammerPreplayTime: Regex = "\\([0-9.,]+\\s+m?s\\)$".r
