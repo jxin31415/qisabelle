@@ -19,11 +19,10 @@ import ParsedTheory.Ops
   * @param path
   *   Path to .thy file.
   * @param sessionName
-  *   Name of session (defined in an Isabelle ROOT file) in which to look for path imports. This
-  *   should be the session whose heap you loaded into isabelle, as we assert that all imports are
-  *   already loaded in the session heap.
+  *   Name of currently loaded session (the name as defined in an Isabelle ROOT file). This is used
+  *   to look for theory imports specified with a path; we assert that all imports are already
+  *   loaded in the session heap.
   * @param debug
-  * @param isabelle
   */
 class ParsedTheory(
     val path: os.Path,
@@ -87,22 +86,27 @@ class ParsedTheory(
     s.trim.replaceAll("\n", " ").replaceAll(" +", " ")
   }
 
-  /** Execute all transitions (inc. theory end), print the text of first/last few for debugging.
+  /** Execute all transitions, print the text of first/last few for debugging.
     *
     * @param initState
     *   State to start from: the default empty state is usually good.
     * @param nDebug
-    *   Print this many first & last non-empty transitions/states.
+    *   Print this many first & last non-empty transitions & resulting states.
+    * @param stopBeforeEnd
+    *   If true, stop execution before the "theory .. end" transition, allowing to continue a
+    *   theory.
     * @return
-    *   State after the last transition (in TopLevel mode).
+    *   State after the last transition: in Theory mode if stopBeforeEnd is true, in Toplevel mode
+    *   otherwise.
     */
   @throws(classOf[IsabelleMLException])
   @throws(classOf[TimeoutException])
   def executeAll(
       initState: ToplevelState = ToplevelState(),
-      nDebug: Integer = 0 //
+      nDebug: Integer = 0,
+      stopBeforeEnd: Boolean = false
   ): ToplevelState = {
-    execute(transitions, initState, nDebug)
+    execute(transitions, initState, nDebug = nDebug, stopBeforeEnd = stopBeforeEnd)
   }
 
   /** Execute all transitions until a given one, print the text of first/last few for debugging.
@@ -114,7 +118,7 @@ class ParsedTheory(
     * @param initState
     *   State to start from: the default empty state is usually good.
     * @param nDebug
-    *   Print this many first & last non-empty transitions/states.
+    *   Print this many first & last non-empty transitions & resulting states.
     */
   @throws(classOf[IsabelleMLException])
   @throws(classOf[TimeoutException])
@@ -127,17 +131,28 @@ class ParsedTheory(
     execute(takeUntil(isarString, inclusive = inclusive), initState, nDebug)
   }
 
-  /** Execute a list of transitions, print the text of first/last few for debugging. */
+  /** Execute a list of transitions, print the text of first/last few for debugging.
+    *
+    * @param transitions
+    *   Transitions to execute, paired with their text (Isar outer syntax).
+    * @param initState
+    *   State to start from: the default empty state is usually good.
+    * @param nDebug
+    *   Print this many first & last non-empty transitions & resulting states.
+    * @param stopBeforeEnd
+    *   If true, stop execution before the "theory .. end" transition, allowing to continue a theory
+    *   after executing all it's transitions.*
+    */
   @throws(classOf[IsabelleMLException])
   @throws(classOf[TimeoutException])
   def execute(
       transitions: List[(Transition, String)],
       initState: ToplevelState = ToplevelState(),
-      nDebug: Integer = 0 // How many first and last non-empty transitions/states to print.
+      nDebug: Integer = 0,
+      stopBeforeEnd: Boolean = false
   ): ToplevelState = {
     var state: ToplevelState = initState
     // Skip empty transitions, to speed-up execution and ease debugging.
-    // TODO is skipping ignored transitions just as fast? Could be slower due to interaction with Isabelle, could be faster.
     val nonEmptyTransitions = transitions.filter(!_._2.trim.isEmpty)
 
     for (((transition, text), i) <- nonEmptyTransitions.zipWithIndex) {
@@ -145,11 +160,14 @@ class ParsedTheory(
         if (i < nDebug || i >= nonEmptyTransitions.length - nDebug)
           println(ParsedTheory.describeTransition(transition, text))
         else
-          print(".") // TODO println iff vscode console?
+          print(".") // Progress indicator.
         System.out.flush()
       }
 
-      state = transition.execute(state)
+      val newState = transition.execute(state)
+      if (stopBeforeEnd && newState.isEndTheory)
+        return state
+      state = newState
 
       if (debug && (i < nDebug || i >= nonEmptyTransitions.length - nDebug))
         println(ParsedTheory.describeState(state))

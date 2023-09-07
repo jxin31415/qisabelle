@@ -38,21 +38,27 @@ def main() -> None:
 
 def test_qisabelle_client() -> None:
     p = Path("/afp/thys/Real_Impl/Real_Impl_Auxiliary.thy")
-    with QIsabelleProxy(theory_path=p, target="end") as proxy:
+    with QIsabelleProxy(theory_path=p) as proxy:
+        print("load theory".center(100, "-"))
+        proof_done, proof_state = proxy.load_theory(p, "", False, "state0")
+        assert proof_done and not proof_state
+
+        print(proxy.describe_state("state0"))
+
         print("lemma".center(100, "-"))
         lemma = 'lemma primes_infinite: "\\<not> (finite {(p::nat). prime p})"'
-        proof_done, proof_state = proxy.execute("default", lemma, "test")
+        proof_done, proof_state = proxy.execute("state0", lemma, "state1")
         print(f"{proof_done=}, {proof_state=}")
         assert not proof_done
         assert proof_state.startswith("proof (prove)\ngoal (1 subgoal):\n")
 
         print("call hammer".center(100, "-"))
-        proof = proxy.hammer("test")
+        proof = proxy.hammer("state1")
         print(f"{proof=}")
 
         print("execute proof".center(100, "-"))
-        proof_done, proof_state = proxy.execute("test", proof, "test2")
-        assert proof_done and proof_state == ""
+        proof_done, proof_state = proxy.execute("state1", proof, "state2")
+        assert proof_done and not proof_state
 
 
 def evaluate_model(model: Model, tests: list[TestCase], server_afp_dir: Path) -> None:
@@ -66,12 +72,9 @@ def evaluate_model(model: Model, tests: list[TestCase], server_afp_dir: Path) ->
 
         theory_path = server_afp_dir / "thys" / test_case.thy_file
         try:
-            print(" Server init and theory load ".center(100, "%"))
-            with QIsabelleProxy(
-                theory_path=theory_path,
-                target=test_case.lemma_statement,
-            ) as proxy:
-                r = run_model_on_test_case(model, test_case.lemma_statement, proxy)
+            print(" Server init ".center(100, "%"))
+            with QIsabelleProxy(theory_path=theory_path) as proxy:
+                r = run_model_on_test_case(model, theory_path, test_case.lemma_statement, proxy)
             result = "success" if r else "failure"
         except Exception as e:
             print(" Exception ".center(100, "%"))
@@ -106,16 +109,19 @@ def evaluate_model(model: Model, tests: list[TestCase], server_afp_dir: Path) ->
     print(f"End of evaluation: {summary} / {len(tests)}")
 
 
-def run_model_on_test_case(model: Model, lemma_statement: str, proxy: QIsabelleProxy) -> bool:
+def run_model_on_test_case(
+    model: Model, theory_path: Path, lemma_statement: str, proxy: QIsabelleProxy
+) -> bool:
     # BestFS, following https://arxiv.org/pdf/2009.03393.pdf:
     # They actually retry everything 4 times.
     PROOF_SEARCH_MAX_TIME = 500.0  # float seconds
     MAX_N_EXPANSIONS = 128
+    MAX_QUEUE_LEN = 32
     # TODO limit number of queries to model: 300?
 
-    print(" Execute lemma statement ".center(100, "%"))
+    print(" Load theory ".center(100, "%"))
     try:
-        proof_done, proof_state = proxy.execute("default", lemma_statement, "s")
+        proof_done, proof_state = proxy.load_theory(theory_path, lemma_statement, True, "s")
         assert not proof_done
     except RuntimeError as e:
         raise
@@ -162,7 +168,7 @@ def run_model_on_test_case(model: Model, lemma_statement: str, proxy: QIsabelleP
                 print("\t" + new_proof_state.strip().replace("\n", "\n\t"))
             if proof_done:
                 return True
-            if len(pqueue) < 32:
+            if len(pqueue) < MAX_QUEUE_LEN:
                 heapq.heappush(
                     pqueue, (score + subscore, proof_step, new_proof_state, new_state_name)
                 )

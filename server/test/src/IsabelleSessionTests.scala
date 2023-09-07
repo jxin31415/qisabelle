@@ -7,7 +7,6 @@ class IsabelleSessionTests extends TestEnvironment {
     withIsabelle(afpDir / "Graph_Theory" / "Digraph.thy") {
       (session: IsabelleSession, parsedTheory: ParsedTheory) =>
         implicit val isabelle = session.isabelle
-        implicit val ec       = session.ec
 
         val state = parsedTheory.executeAll()
         assert(state.isEndTheory)
@@ -19,7 +18,6 @@ class IsabelleSessionTests extends TestEnvironment {
     withIsabelle(afpDir / "Coinductive" / "Examples" / "CCPO_Topology.thy") {
       (session: IsabelleSession, parsedTheory: ParsedTheory) =>
         implicit val isabelle = session.isabelle
-        implicit val ec       = session.ec
 
         val state = parsedTheory.executeAll()
         assert(state.isEndTheory)
@@ -37,7 +35,6 @@ class IsabelleSessionTests extends TestEnvironment {
 
     withIsabelle(p) { (session: IsabelleSession, parsedTheory: ParsedTheory) =>
       implicit val isabelle = session.isabelle
-      implicit val ec       = session.ec
 
       val state = parsedTheory.executeAll()
       assert(state.isEndTheory)
@@ -48,7 +45,6 @@ class IsabelleSessionTests extends TestEnvironment {
     withIsabelle(isabelleDir / "src" / "HOL" / "Examples" / "Seq.thy") {
       (session: IsabelleSession, parsedTheory: ParsedTheory) =>
         implicit val isabelle = session.isabelle
-        implicit val ec       = session.ec
 
         val state = parsedTheory.executeAll(nDebug = 1000)
         assert(state.isEndTheory)
@@ -69,30 +65,29 @@ class IsabelleSessionTests extends TestEnvironment {
     withIsabelle(isabelleDir / "src" / "HOL" / "Examples" / "Seq.thy") {
       (session: IsabelleSession, parsedTheory: ParsedTheory) =>
         implicit val isabelle = session.isabelle
-        implicit val ec       = session.ec
 
         val stateCommon = parsedTheory.executeUntil(firstLemma, inclusive = false)
         assert(stateCommon.isTheoryMode)
 
         // Right: prove first lemma.
-        var stateR = IsabelleSession.parseAndExecute(firstLemma, stateCommon)
+        var stateR = session.parseAndExecute(firstLemma, stateCommon)
         assert(stateR.isProofMode && stateR.proofStateDescription.contains("(1 subgoal"))
-        stateR = IsabelleSession.parseAndExecute(firstProof, stateR)
+        stateR = session.parseAndExecute(firstProof, stateR)
         assert(stateR.isTheoryMode && stateR.proofStateDescription == "")
 
         // Left: attempt to prove second lemma with undefined reference to first.
-        var stateL = IsabelleSession.parseAndExecute(secondLemma, stateCommon)
+        var stateL = session.parseAndExecute(secondLemma, stateCommon)
         assert(stateL.isProofMode && stateL.proofStateDescription.contains("(1 subgoal"))
         val thrown = intercept[IsabelleMLException] {
-          stateL = IsabelleSession.parseAndExecute(secondProof, stateL).force
+          stateL = session.parseAndExecute(secondProof, stateL).force
         }
         val msg = thrown.getMessage()
         assert(msg.contains("Undefined fact") && msg.contains("reverse_conc"))
 
         // Right: prove second lemma from first lemma.
-        stateR = IsabelleSession.parseAndExecute(secondLemma, stateR)
+        stateR = session.parseAndExecute(secondLemma, stateR)
         assert(stateR.isProofMode && stateR.proofStateDescription.contains("(1 subgoal"))
-        stateR = IsabelleSession.parseAndExecute(secondProof, stateR)
+        stateR = session.parseAndExecute(secondProof, stateR)
         assert(stateR.isTheoryMode && stateR.proofStateDescription == "")
     }
   }
@@ -115,35 +110,34 @@ class IsabelleSessionTests extends TestEnvironment {
     withIsabelle(isabelleDir / "src" / "HOL" / "Examples" / "Seq.thy") {
       (session: IsabelleSession, parsedTheory: ParsedTheory) =>
         implicit val isabelle = session.isabelle
-        implicit val ec       = session.ec
 
         val stateCommon = parsedTheory.executeUntil(firstLemma, inclusive = false)
         assert(stateCommon.isTheoryMode)
 
         // Left: prove dummy first lemma under same name.
-        var stateL = IsabelleSession.parseAndExecute(firstLemmaAlt, stateCommon)
+        var stateL = session.parseAndExecute(firstLemmaAlt, stateCommon)
         assert(stateL.isProofMode && stateL.proofStateDescription.contains("(1 subgoal"))
-        stateL = IsabelleSession.parseAndExecute(firstProofAlt, stateL)
+        stateL = session.parseAndExecute(firstProofAlt, stateL)
         assert(stateL.isTheoryMode && stateL.proofStateDescription == "")
 
         // Right: prove true first lemma.
-        var stateR = IsabelleSession.parseAndExecute(firstLemma, stateCommon)
-        stateR = IsabelleSession.parseAndExecute(firstProof, stateR)
+        var stateR = session.parseAndExecute(firstLemma, stateCommon)
+        stateR = session.parseAndExecute(firstProof, stateR)
         assert(stateR.isTheoryMode && stateR.proofStateDescription == "")
 
         // Left: attempt to prove second lemma from dummy first lemma should fail.
-        stateL = IsabelleSession.parseAndExecute(secondLemma, stateL)
+        stateL = session.parseAndExecute(secondLemma, stateL)
         assert(stateL.isProofMode && stateL.proofStateDescription.contains("(1 subgoal"))
         val thrown = intercept[IsabelleMLException] {
-          stateL = IsabelleSession.parseAndExecute(secondProof, stateL).force
+          stateL = session.parseAndExecute(secondProof, stateL).force
         }
         val msg = thrown.getMessage()
         assert(msg.contains("Failed to finish proof"))
 
         // Right: prove second lemma from first lemma.
-        stateR = IsabelleSession.parseAndExecute(secondLemma, stateR)
+        stateR = session.parseAndExecute(secondLemma, stateR)
         assert(stateR.isProofMode && stateR.proofStateDescription.contains("(1 subgoal"))
-        stateR = IsabelleSession.parseAndExecute(secondProof, stateR)
+        stateR = session.parseAndExecute(secondProof, stateR)
         assert(stateR.isTheoryMode && stateR.proofStateDescription == "")
     }
   }

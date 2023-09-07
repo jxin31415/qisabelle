@@ -15,7 +15,6 @@ class QIsabelleProxy:
     def __init__(
         self,
         theory_path: Path,
-        target: str,
         working_directory: Optional[Path] = None,
         port: int = 17000,
         debug: bool = True,
@@ -29,7 +28,6 @@ class QIsabelleProxy:
             {
                 "workingDir": str(working_directory or theory_path.parent),
                 "theoryPath": str(theory_path),
-                "target": target,
             },
         )
         assert r == {"success": "success"}, r
@@ -56,12 +54,38 @@ class QIsabelleProxy:
         r = self._post("/closeIsabelleSession")
         assert r == {"success": "Closed"}, r
 
+    def load_theory(
+        self, theory_path: Path, until: str, inclusive: bool, new_state_name: str
+    ) -> tuple[bool, str]:
+        r = self._post(
+            "/loadTheory",
+            {
+                "theoryPath": str(theory_path),
+                "until": until,
+                "inclusive": inclusive,
+                "newStateName": new_state_name,
+            },
+        )
+        return cast(bool, r["proofDone"]), cast(str, r["proofState"])
+
+    def describe_state(self, state_name: str) -> str:
+        r = self._post("/describeState", {"stateName": state_name})
+        return cast(str, r["description"])
+
     def execute(self, state_name: str, isar_code: str, new_state_name: str) -> tuple[bool, str]:
         r = self._post(
             "/execute",
             {"stateName": state_name, "isarCode": isar_code, "newStateName": new_state_name},
         )
         return cast(bool, r["proofDone"]), cast(str, r["proofState"])
+
+    def forget_state(self, state_name: str) -> None:
+        r = self._post("/forgetState", {"stateName": state_name})
+        assert r == {"success": "success"}, r
+
+    def forget_all_states(self) -> None:
+        r = self._post("/forgetAllStates")
+        assert r == {"success": "success"}, r
 
     def hammer(
         self, state_name: str, added_facts: list[str] = [], deleted_facts: list[str] = []

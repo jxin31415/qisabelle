@@ -13,20 +13,36 @@ import de.unruh.isabelle.pure.Implicits.theoryConverter
 
 import Sledgehammer.Ops
 
-object Sledgehammer extends OperationCollection {
-  object Outcomes extends Enumeration {
-    type Outcome = Value
-    val Some, Timeout, ResourcesOut, Unknown, None = Value
-    def fromMLString(s: String): Outcome = {
-      s match {
-        case "some"          => Some         // Success, found some tentative proof.
-        case "timeout"       => Timeout      // Timeout.
-        case "resources_out" => ResourcesOut // Out of memory, too many symbols used, etc.
-        case "none"          => None         // Nothing found, or no subgoals.
-        case "unknown"       => Unknown      // Error.
-        case _               => throw new Exception("Unexpected Sledgehammer outcome: " + s)
-      }
-    }
+/** A Sledgehammer configuration.
+  *
+  * The class is cheap to initialize, so it can be constructed anew at every call.
+  *
+  * @param softTimeout
+  *   This is a suggestion for sledgehammer; it must be significantly lower than midTimeout to give
+  *   provers a chance of returning. The provers will actually run for ~10+s longer. Note that the
+  *   provers may actually succeed sooner if you give them a smaller timeout.
+  * @param midTimeout
+  *   This is an ML timeout; if not given, the ML process would continue running provers even when
+  *   scala timed-out and discarder the result handle. Not very precise, it will actually take a few
+  *   seconds longer. Make this equal to hardTimeout, or smaller to avoid waiting on ML the next
+  *   time scala calls it. It's not bulletproof though, stuff in the ML process may continue after
+  *   it timed out.
+  * @param hardTimeout
+  *   This is a hard, precise timeout (but it doesn't kill the ML prover processes).
+  */
+class Sledgehammer(
+    val softTimeout: Duration = 30.seconds,
+    val midTimeout: Duration = 35.seconds,
+    val hardTimeout: Duration = 40.seconds,
+    val debug: Boolean = true
+)(implicit
+    isabelle: Isabelle
+) {
+  val startTime = System.currentTimeMillis()
+  Sledgehammer.Ops.runSledgehammer.force.retrieveNow
+  if (debug) {
+    val initTime = (System.currentTimeMillis() - startTime) / 1000.0
+    println(f"Sledgehammer initialized in ${initTime}%.2fs")
   }
 
   /** Run Slegehammer (ML `run_sledgehammer`) on a state to try solving the first goal.
@@ -37,31 +53,16 @@ object Sledgehammer extends OperationCollection {
     *   A list of fact names strongly suggested to Sledgehammer.
     * @param deletedFacts
     *   A list of fact names forbidden for Sledgehammer.
-    * @param softTimeout
-    *   This is a suggestion for sledgehammer; it must be significantly lower than midTimeout to
-    *   give provers a chance of returning. The provers will actually run for ~10+s longer. Note
-    *   that the provers may actually succeed sooner if you give them a smaller timeout.
-    * @param midTimeout
-    *   This is an ML timeout; if not given, the ML process would continue running provers even when
-    *   scala timed-out and discarder the result handle. Not very precise, it will actually take a
-    *   few seconds longer. Make this equal to hardTimeout, or smaller to avoid waiting on ML the
-    *   next time scala calls it. It's not bulletproof though, stuff in the ML process may continue
-    *   after it timed out.
-    * @param hardTimeout
-    *   This is a hard, precise timeout (but it doesn't kill the ML prover processes).
+    *
     * @return
     *   (outcome, message), where message is an Isar proof if outcome is success ("Some"). The proof
-    *   is not guaranteed to be correct.
+    *   is not guaranteed to be correct. See `Sledgehammer.Outcomes`.
     */
   def run(
       state: ToplevelState,
       addedFacts: List[String] = List(),
-      deletedFacts: List[String] = List(),
-      softTimeout: Duration = 30.seconds,
-      midTimeout: Duration = 35.seconds,
-      hardTimeout: Duration = 40.seconds,
-      debug: Boolean = true
-  )(implicit isabelle: Isabelle): (Outcomes.Outcome, String) = {
+      deletedFacts: List[String] = List()
+  )(implicit isabelle: Isabelle): (Sledgehammer.Outcomes.Outcome, String) = {
     if (debug) println("Hammer: start")
     val start = System.currentTimeMillis()
     val (outcomeString, message): (String, String) = {
@@ -92,9 +93,10 @@ object Sledgehammer extends OperationCollection {
       }
     }
 
-    val outcome = Outcomes.fromMLString(outcomeString)
+    val outcome = Sledgehammer.Outcomes.fromMLString(outcomeString)
     val proofOrMessage = {
-      if (outcome == Outcomes.Some) hammerMessageToProofText(message) else message
+      if (outcome == Sledgehammer.Outcomes.Some) Sledgehammer.hammerMessageToProofText(message)
+      else message
     }
     if (debug) println("Hammer: time=" + ((System.currentTimeMillis() - start) / 1000.0) + "s")
     if (debug) println("Hammer: outcome=" + outcome)
@@ -112,23 +114,39 @@ object Sledgehammer extends OperationCollection {
       deletedFacts: List[String] = List(),
       softTimeout: Duration = 30.seconds,
       midTimeout: Duration = 35.seconds,
-      hardTimeout: Duration = 40.seconds,
-      debug: Boolean = true
+      hardTimeout: Duration = 40.seconds
   )(implicit isabelle: Isabelle): String = {
     val (outcome, proofOrMessage) =
-      run(state, addedFacts, deletedFacts, softTimeout, midTimeout, hardTimeout, debug)
+      run(state, addedFacts, deletedFacts)
     outcome match {
-      case Outcomes.Some =>
+      case Sledgehammer.Outcomes.Some =>
         if (proofOrMessage.trim.nonEmpty) proofOrMessage
         else throw new Exception("Sledgehammer returned empty proof")
-      case Outcomes.Timeout =>
+      case Sledgehammer.Outcomes.Timeout =>
         throw new TimeoutException("Sledgehammer timeout: " + proofOrMessage)
-      case Outcomes.ResourcesOut =>
+      case Sledgehammer.Outcomes.ResourcesOut =>
         throw new Exception("Sledgehammer out of resources: " + proofOrMessage)
-      case Outcomes.None =>
+      case Sledgehammer.Outcomes.None =>
         throw new Exception("Sledgehammer no proof found: " + proofOrMessage)
-      case Outcomes.Unknown =>
+      case Sledgehammer.Outcomes.Unknown =>
         throw new Exception("Sledgehammer error: " + proofOrMessage)
+    }
+  }
+}
+
+object Sledgehammer extends OperationCollection {
+  object Outcomes extends Enumeration {
+    type Outcome = Value
+    val Some, Timeout, ResourcesOut, Unknown, None = Value
+    def fromMLString(s: String): Outcome = {
+      s match {
+        case "some"          => Some         // Success, found some tentative proof.
+        case "timeout"       => Timeout      // Timeout.
+        case "resources_out" => ResourcesOut // Out of memory, too many symbols used, etc.
+        case "none"          => None         // Nothing found, or no subgoals.
+        case "unknown"       => Unknown      // Error.
+        case _               => throw new Exception("Unexpected Sledgehammer outcome: " + s)
+      }
     }
   }
 
