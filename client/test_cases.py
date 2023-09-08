@@ -1,7 +1,8 @@
+""" Loading test cases from PISA json files."""
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
 
 @dataclass
@@ -11,11 +12,19 @@ class TestCase:
     lemma_statement: str
 
 
-def load_test_cases(test_files: Iterable[Path], afp_dir: Path) -> list[TestCase]:
-    return [_load_test_case(p, afp_dir) for p in test_files]
+def load_all_test_cases(pisa_test_dir: Path) -> list[TestCase]:
+    """Load all 3600 test cases from PISA ('universal_test_theorems/')."""
+    test_files = sorted(pisa_test_dir.glob("*.json"), key=_numeric_sort_key)
+    return [load_test_case(p) for p in test_files]
 
 
-def _load_test_case(test_file: Path, afp_dir: Path) -> TestCase:
+def load_quick_test_cases(pisa_test_dir: Path) -> list[TestCase]:
+    """Load 600 "quick" test cases from PISA ('universal_test_theorems/')."""
+    test_files = sorted(pisa_test_dir.glob("quick*.json"), key=_numeric_sort_key)
+    return [load_test_case(p) for p in test_files]
+
+
+def load_test_case(test_file: Path) -> TestCase:
     with open(test_file) as f:
         o = json.load(f)
     assert isinstance(o, list) and len(o) == 1
@@ -26,6 +35,14 @@ def _load_test_case(test_file: Path, afp_dir: Path) -> TestCase:
     thy_file = thy_file.split("/thys/", maxsplit=1)[1]
     if not lemma_statement.startswith(("lemma ", "theorem ", "lemma[")):
         print(f"Unusual test case lemma statement: {lemma_statement}")
-    if not (afp_dir / "thys" / thy_file).exists():
-        print(f"No such theory file: {thy_file}")
     return TestCase(name=test_file.stem, thy_file=Path(thy_file), lemma_statement=lemma_statement)
+
+
+def _numeric_sort_key(s: Path) -> tuple[str | int, ...]:
+    result: list[str | int] = []
+    for x in re.split(r"(\d+)", str(s)):
+        try:
+            result.append(int(x))
+        except ValueError:
+            result.append(x)
+    return tuple(result)

@@ -36,7 +36,7 @@ class QIsabelleProxy:
 
     def _post(self, path: str, json_data: Optional[dict[str, Any]] = None) -> JSON:
         if self.debug:
-            print(f"Request to http://localhost:{self.port}{path} with data={json_data}")
+            print(f"Request to http://localhost:{self.port}{path} with {json_data}")
         if json_data is None:
             json_data = {}
         response = requests.post(f"http://localhost:{self.port}{path}", json=json_data)
@@ -66,7 +66,7 @@ class QIsabelleProxy:
                 "newStateName": new_state_name,
             },
         )
-        return cast(bool, r["proofDone"]), cast(str, r["proofState"])
+        return cast(bool, r["proofDone"]), cast(str, r["proofGoals"])
 
     def describe_state(self, state_name: str) -> str:
         r = self._post("/describeState", {"stateName": state_name})
@@ -77,7 +77,7 @@ class QIsabelleProxy:
             "/execute",
             {"stateName": state_name, "isarCode": isar_code, "newStateName": new_state_name},
         )
-        return cast(bool, r["proofDone"]), cast(str, r["proofState"])
+        return cast(bool, r["proofDone"]), cast(str, r["proofGoals"])
 
     def forget_state(self, state_name: str) -> None:
         r = self._post("/forgetState", {"stateName": state_name})
@@ -95,3 +95,23 @@ class QIsabelleProxy:
             {"stateName": state_name, "addedFacts": added_facts, "deletedFacts": deleted_facts},
         )
         return cast(str, r["proof"])
+
+
+def get_exception_kind(e: Exception) -> str:
+    s = repr(e)
+    if "Transition not found" in s:
+        return "not-found"
+    elif "NoSuchFileException" in s:
+        return "no-such-file"
+    elif "Sledgehammer timeout: Timed out" in s:
+        return "timeout-soft"
+    elif "Sledgehammer timeout: Mid timeout exceeded" in s:
+        return "timeout-mid"
+    elif "Sledgehammer timeout: Hard timeout exceeded" in s:
+        return "timeout-hard"
+    elif "IsabelleMLException: Timeout" in s:
+        return "execution-timeout"
+    elif "Failed to apply initial proof method" in s:
+        return "failed-proof"
+    else:
+        return "unknown"

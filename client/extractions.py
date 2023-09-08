@@ -17,11 +17,11 @@ class Extraction:
     # Though there seems to be a lot of noise, like definitions, comments, others.
 
 
-def load_extractions(afp_extractions_dir: Path, afp_dir: Path) -> list[Extraction]:
-    return list(_load_extraction(p, afp_dir) for p in afp_extractions_dir.glob("**/*.json"))
+def load_extractions(afp_extractions_dir: Path) -> list[Extraction]:
+    return list(_load_extraction(p) for p in afp_extractions_dir.glob("**/*.json"))
 
 
-def _load_extraction(afp_extraction_file: Path, afp_dir: Path) -> Extraction:
+def _load_extraction(afp_extraction_file: Path) -> Extraction:
     with open(afp_extraction_file) as f:
         o = json.load(f)
     assert isinstance(o, dict) and set(o.keys()) == {
@@ -37,8 +37,6 @@ def _load_extraction(afp_extraction_file: Path, afp_dir: Path) -> Extraction:
 
     assert o["file_name"].startswith("/home/qj213/afp-2021-10-22/thys/")
     thy_file = Path(o["file_name"].split("/thys/", maxsplit=1)[1])
-    if not (afp_dir / "thys" / thy_file).exists():
-        print(f"No such theory file: {afp_dir / 'thys' / thy_file}")
 
     assert o["working_directory"].startswith("/home/qj213/afp-2021-10-22/thys/")
     work_dir = Path(o["file_name"].split("/thys/", maxsplit=1)[1])

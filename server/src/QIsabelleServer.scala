@@ -75,6 +75,22 @@ case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) exte
     }
   }
 
+  /** Stop the Isabelle process and clear the state map and theory from memory.
+    *
+    * @return
+    *   {"success": "Closed"} or {"error": "Already closed", "traceback": ""}
+    */
+  @cask.postJson("/closeIsabelleSession")
+  def closeIsabelleSession(): ujson.Obj = {
+    stateMap = null
+    sledgehammer = null
+    if (session == null)
+      return ujson.Obj("error" -> "Already closed", "traceback" -> "")
+    session.close()
+    session = null
+    return ujson.Obj("success" -> "Closed")
+  }
+
   /** Load a given theory file until a specified transition.
     *
     * @param theoryPath:
@@ -107,7 +123,7 @@ case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) exte
       }
       stateMap += (newStateName -> newState)
       return ujson.Obj(
-        "proofState" -> newState.proofStateDescription,
+        "proofGoals" -> newState.proofStateDescription,
         "proofDone"  -> (newState.proofLevel == 0)
       )
     } catch {
@@ -115,20 +131,11 @@ case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) exte
     }
   }
 
-  /** Stop the Isabelle process and clear the state map and theory from memory.
-    *
-    * @return
-    *   {"success": "Closed"} or {"error": "Already closed", "traceback": ""}
-    */
-  @cask.postJson("/closeIsabelleSession")
-  def closeIsabelleSession(): ujson.Obj = {
-    stateMap = null
-    sledgehammer = null
-    if (session == null)
-      return ujson.Obj("error" -> "Already closed", "traceback" -> "")
-    session.close()
-    session = null
-    return ujson.Obj("success" -> "Closed")
+  @cask.postJson("/describeState")
+  def describeState(stateName: String): ujson.Obj = {
+    implicit val isabelle    = session.isabelle
+    val state: ToplevelState = stateMap(stateName)
+    return ujson.Obj("description" -> ParsedTheory.describeState(state))
   }
 
   /** Parse an execute Isar code on a given state, save the resulting state under a new name.
@@ -141,7 +148,7 @@ case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) exte
     *   Name of new state to save the result under.
     * @return
     *   - On successful execuction, a JSON object with keys:
-    *     - proofState: like "proof (prove) goal (1 subgoal): ..." (empty if not in proof mode).
+    *     - proofGoals: like "proof (prove) goal (1 subgoal): ..." (empty if not in proof mode).
     *     - proofDone: true if there are no more subgoals (proof level is 0, the resulting toplevel
     *       state is not in proof nor skipped-proof mode).
     *   - On error: {"error": str, "traceback": str}
@@ -157,7 +164,7 @@ case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) exte
       stateMap += (newStateName -> newState)
 
       return ujson.Obj(
-        "proofState" -> newState.proofStateDescription,
+        "proofGoals" -> newState.proofStateDescription,
         "proofDone"  -> (newState.proofLevel == 0)
       )
     } catch {
@@ -203,13 +210,6 @@ case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) exte
     } catch {
       case e: Throwable => exceptionJson(e)
     }
-  }
-
-  @cask.postJson("/describeState")
-  def describeState(stateName: String): ujson.Obj = {
-    implicit val isabelle    = session.isabelle
-    val state: ToplevelState = stateMap(stateName)
-    return ujson.Obj("description" -> ParsedTheory.describeState(state))
   }
 
   def exceptionJson(e: Throwable): ujson.Obj = {
