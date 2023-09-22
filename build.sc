@@ -12,9 +12,8 @@ object server extends ScalaModule {
     ivy"com.lihaoyi::os-lib:0.9.1",
     ivy"com.lihaoyi::cask:0.9.1",
     // ivy"com.lihaoyi::scalatags:0.8.2",
-    // ivy"com.lihaoyi::mainargs:0.4.0"
-    // ivy"de.unruh::scala-isabelle::0.4.1"
-    ivy"de.unruh::scala-isabelle:master-SNAPSHOT"
+    // ivy"de.unruh::scala-isabelle::v0.4.2",
+    ivy"de.unruh::scala-isabelle:master-SNAPSHOT",
     // resolvers ++= Resolver.sonatypeOssRepos("snapshots"),
   )
 

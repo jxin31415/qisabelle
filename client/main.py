@@ -1,3 +1,4 @@
+import os
 import time
 from collections import defaultdict
 from pathlib import Path
@@ -7,9 +8,10 @@ from .model import DummyGTModel, DummyHammerModel, Model  # noqa: F401
 from .proxy import QIsabelleProxy, get_exception_kind
 from .test_cases import TestCase, load_quick_test_cases
 
-ROOT_DIR = Path("/home/mwrochna/projects/play/")
-AFP_DIR = ROOT_DIR / "afp-2023-03-16"
-PISA_TEST_DIR = ROOT_DIR / "Portal-to-ISAbelle" / "universal_test_theorems"
+ROOT_DIR = Path(__file__).parent.parent
+AFP_ID = os.environ.get("AFP_ID", (ROOT_DIR / ".env").read_text().split("=")[1].strip())
+AFP_DIR = ROOT_DIR / f"afp_{AFP_ID}"
+PISA_TEST_DIR = ROOT_DIR / "test_theorems" / "PISA"
 
 
 def main() -> None:
@@ -22,7 +24,7 @@ def main() -> None:
         return
 
     print("Loading tests from", PISA_TEST_DIR)
-    tests = load_quick_test_cases(PISA_TEST_DIR)
+    tests = load_quick_test_cases(PISA_TEST_DIR)[:2]
     print(f"Loaded {len(tests)} tests.")
 
     for test in tests:

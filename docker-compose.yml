@@ -1,0 +1,13 @@
+services:
+  qisabelle-server:
+    build:
+      context: .
+      dockerfile: ServerDockerfile
+    volumes:
+      - ./afp_$AFP_ID:/afp:ro
+      - ./dockerheaps/Isabelle2023_afp_$AFP_ID:/home/isabelle/Isabelle/heaps:ro
+    deploy:
+      mode: replicated
+      replicas: 1
+    ports:
+    - "127.0.0.1:17000-17000:17000/tcp"

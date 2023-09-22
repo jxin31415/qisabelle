@@ -6,3 +6,5 @@ out
 **/__pycache__
 .mypy_cache
 xtmp
+afp*
+dockerheaps*

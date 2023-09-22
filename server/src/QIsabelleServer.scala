@@ -227,7 +227,7 @@ object QISabelleServer extends cask.Main {
   override def host: String       = sys.env.getOrElse("QISABELLE_HOST", "localhost")
   override def port: Int          = sys.env.getOrElse("QISABELLE_PORT", "17000").toInt
   override def main(args: Array[String]): Unit = {
-    println(s"QIsabelleServer starts listening on ${host}:${port}")
+    println("QIsabelleServer starts listening.")  // s" on ${host}:${port}")
     super.main(args)
   }
 }

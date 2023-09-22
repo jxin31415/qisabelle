@@ -1,4 +1,4 @@
-FROM  makarius/isabelle:Isabelle2022
+FROM  makarius/isabelle:Isabelle2023
 # https://hub.docker.com/r/makarius/isabelle
 
 ARG SCALA_VERSION
@@ -14,8 +14,8 @@ RUN apt-get update && \
 RUN adduser isabelle sudo
 
 # USER isabelle
-# RUN curl -fsL https://isabelle.in.tum.de/dist/Isabelle2022_linux.tar.gz > Isabelle.tar.gz
-# RUN tar xzf Isabelle.tar.gz && rm Isabelle.tar.gz && mv Isabelle2022 Isabelle
+# RUN curl -fsL https://isabelle.in.tum.de/dist/Isabelle2023_linux.tar.gz > Isabelle.tar.gz
+# RUN tar xzf Isabelle.tar.gz && rm Isabelle.tar.gz && mv Isabelle2023 Isabelle
 # # RUN sed -i -e 's@ISABELLE_HOME_USER=.*@ISABELLE_HOME_USER="/isa"@g' Isabelle/etc/settings
 # RUN Isabelle/bin/isabelle build -b HOL
 # USER root
