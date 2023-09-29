@@ -1,0 +1,9 @@
+services:
+  qisabelle-server-tests:
+    build:
+      context: .
+      dockerfile: ServerDockerfile
+    volumes:
+      - ./afp_$AFP_ID:/afp:ro
+      - ./dockerheaps/Isabelle2023_afp_$AFP_ID:/home/isabelle/Isabelle/heaps:ro
+    entrypoint: /bin/bash -c "mill server.test.compile && mill server.test"

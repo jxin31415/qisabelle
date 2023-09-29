@@ -6,7 +6,53 @@ a Python interface to the Isabelle proof assistant by Albert Qiaochu Jiang, Wend
 Both PISA and QIsabelle rely on [scala-isabelle](https://github.com/dominique-unruh/scala-isabelle) by Dominique Unruh.
 
 
+## Usage
+QIsabelle contains:
+* a server (written in Scala) that spawns an Isabelle process and provides an HTTP API to interact with it,
+* a Python client library for calling the HTTP API (`session.py`), with examples in `main.py`.
+
+
+### Example
+```python
+    with QIsabelleSession(session_name="HOL", session_roots=[]) as session:
+        # Initialize a new theory with imports from HOL, store as "state0".
+        session.new_theory(
+            theory_name="Test",
+            new_state_name="state0",
+            imports=["Complex_Main", "HOL-Computational_Algebra.Primes"],
+            only_import_from_session_heap=False,
+        )
+        print(session.describe_state("state0"))
+
+        # Execute a lemma statement, store result as "state1".
+        lemma = 'lemma foo: "prime p \\<Longrightarrow> p > (1::nat)"'
+        is_proof_done, proof_goals = session.execute("state0", lemma, "state1")
+        assert not is_proof_done
+        print(indent(proof_goals))  # "proof (prove) goal (1 subgoal):"...
+
+        # Execute a proof and check that it proved the lemma.
+        proof = "using prime_gt_1_nat by simp"
+        is_proof_done, proof_goals = session.execute("state1", proof, "state2")
+        assert is_proof_done and not proof_goals
+
+        # Find an alternative proof with Sledgehammer.
+        proof = session.hammer("state1", deleted_facts=["prime_gt_1_nat"])
+        print(indent(proof))  # "by (simp add: prime_nat_iff)"
+        is_proof_done, proof_goals = session.execute("state1", proof, "state3")
+        assert is_proof_done and not proof_goals
+```
+
+### HTTP API
+The server provides a HTTP API defined and documented in `server/src/QIsabelleServer.scala`.
+It uses JSON objects (dicts) as inputs and outputs.
+It should be easy to use from any language, see `client/session.py` for a Python wrapper and `client/main.py` for more usage examples.
+
+
 ## Setup
+### 0. Requirements
+Python ≥3.10, docker, curl, brotli (for decompressing, install it with your system's package manager).<br>
+You do not need to install Isabelle, scala, or Java, as they are included in the container.
+
 ### 1. Clone the repo
 ```bash
 git clone git@github.com:marcinwrochna/qisabelle.git
@@ -18,29 +64,43 @@ git clone https://github.com/marcinwrochna/qisabelle.git
 
 ### 2. Download heaps
 A heap is a saved memory state of the Isabelle/ML process, usually after fully executing an Isabelle [session](https://isabelle.in.tum.de/doc/system.pdf).
-They are large, about 40GB decompressed, too large to be included in a docker image, so pre-built heaps of all of [AFP](https://www.isa-afp.org/) are available for download.
+They are too large to be included in a docker image, so pre-built heaps of all of [AFP](https://www.isa-afp.org/) are available for download.
+These take 40GB after decompression (and 7GB more is temporarily needed for the compressed download).
 
 By default, QIsabelle uses heaps from the main 2023 (September) AFP release (`2023_01bf5fad3e59`).
 (Alternatively, you can choose a different one from [this page](https://u363828-sub1:7K5XEQ7RDqvbjY8v@u363828-sub1.your-storagebox.de/)
 and modify the `.env` file accordingly,
-or building a heap yourself from any AFP version: see *Building your own heap* below).
+or build a heap yourself from any AFP version: see *Building your own heap* below).
 
 ```bash
     cd qisabelle
     source .env
     echo $AFP_ID
-    # Download the AFP release (.thy files, including files generated during heap building).
+    # Download the AFP release (just .thy files, including files generated during heap building).
     curl -u u363828-sub1:7K5XEQ7RDqvbjY8v https://u363828-sub1.your-storagebox.de/afp_$AFP_ID.tar.gz -O
     tar -xf afp_$AFP_ID.tar.gz
     rm afp_$AFP_ID.tar.gz
     mkdir dockerheaps
     cd dockerheaps
-    # Download compressed heaps (7GB, then 40GB more for decompression).
+    # Download an decompress heaps.
     curl -u u363828-sub1:7K5XEQ7RDqvbjY8v https://u363828-sub1.your-storagebox.de/Isabelle2023_afp_$AFP_ID.tar.br -O
     tar --use-compress-program=brotli -xf Isabelle2023_afp_$AFP_ID.tar.br
     rm Isabelle2023_afp_$AFP_ID.tar.br
     cd ..
 ```
+
+Afterwards you should have at least the following directories:
+```
+qisabelle
+├── afp_$AFP_ID
+│   └── thys
+├── client
+├── dockerheaps
+│   └── Isabelle2023_afp_$AFP_ID
+│       └── polyml-5.9_x86_64_32-linux
+└── server
+```
+
 ### 3. Start the server and client
 On port 17000 (change `docker-compose.yaml` to change the port or to add more replicas):
 ```bash
@@ -53,22 +113,10 @@ To start the Python client, in another console, run:
 
 In case of permission errors, use `chown -R 1000:1000` on heaps or `chmod -R a+rwX` on AFP.
 
-The client by default runs 600 tests (which takes hours even on a powerful computing server) with a model that just uses [Sledgehammer](https://isabelle.in.tum.de/dist/Isabelle2023/doc/sledgehammer.pdf) at every step.
 
-<!-- According to the paper, it should give ~154 out of 600 tests passing for just running the hammer. -->
-Currently on default settings the results for this model are:
-* success: 179
-* timeout-soft: 118, timeout-mid: 1, timeout-hard: 283 (hammer timeouts)
-* execution-timeout: 6 (proof, or theory up to lemma statement, takes too long to execute)
-* failed-proof: 1 (proof given by hammer fails)
-* not_found: 10, no_such_file: 1  (test mismatch with the version of AFP we have).
-
-With larger hammer timeouts (60s) we can get to ~203 successes, so this varies with computing power.
-
-## API
-The server provides a HTTP API defined and documented in `server/src/QIsabelleServer.scala`.
-It has JSON dict as inputs and outputs.
-It should be easy to use from any language, see `client/proxy.py` for a Python wrapper and `client/main.py` for usage examples.
+## Caveats
+* Initializing Isabelle (API call `openIsabelleSession`) can take a dozen seconds on a powerful server. And you need to do it every time you change the loaded Isabelle session (so every time you want a different set of theories available without building from scratch).
+* When Sledgehammer is used, timeouts make it hard to get reproducible results, success depends on server load, computing power and just random factors.
 
 ## Heaps – details
 Pre-built heaps for QIsabelle are mounted read-only (for reproducibility), as system heaps (at `/home/isabelle/Isabelle/heaps/` inside the docker container),
@@ -96,7 +144,7 @@ You can also select a specific tag, branch, or revision (see [here](https://foss
 Timeout errors are normal, just repeat the command to retry failed sessions.
 You can Ctrl+C and restart to continue at any time.
 Note this will modify the AFP thys directory (some theories generate code);
-if you mount it as read-only, a few theories will fail (which is OK).
+if you mount it as read-only, a few theories will fail (which would be OK).
 The `-j` option specifies the number of parallel workers, more than 30 is probably waste.
 ```bash
     mkdir -p dockerheaps/Isabelle2023_afp_$AFP_ID
@@ -134,6 +182,10 @@ It is recommended to use mypy and ruff (or black, isort, flake8) for development
 ### Building the server docker image
 ```bash
     docker-compose build
+```
+To run tests inside it:
+```bash
+    docker-compose -f docker-tests.yaml up
 ```
 
 ### Scala-Isabelle development version

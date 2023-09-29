@@ -1,84 +1,113 @@
 import os
+import textwrap
 import time
 from collections import defaultdict
 from pathlib import Path
 
-from .extractions import load_extractions
-from .model import DummyGTModel, DummyHammerModel, Model  # noqa: F401
-from .proxy import QIsabelleProxy, get_exception_kind
+from .model import DummyHammerModel, Model
+from .session import QIsabelleSession, get_exception_kind
 from .test_cases import TestCase, load_quick_test_cases
-
-ROOT_DIR = Path(__file__).parent.parent
-AFP_ID = os.environ.get("AFP_ID", (ROOT_DIR / ".env").read_text().split("=")[1].strip())
-AFP_DIR = ROOT_DIR / f"afp_{AFP_ID}"
-PISA_TEST_DIR = ROOT_DIR / "test_theorems" / "PISA"
+from .utils import read_env_dict
 
 
 def main() -> None:
-    if False:
-        test_qisabelle_basics()
-        return
+    test_new_theory()
+    # test_going_into_theory()
+    # test_pisa()
 
-    if False:
-        test_extractions(ROOT_DIR / "afp_extractions", AFP_DIR)
-        return
 
-    print("Loading tests from", PISA_TEST_DIR)
-    tests = load_quick_test_cases(PISA_TEST_DIR)[:2]
+def test_new_theory() -> None:
+    with QIsabelleSession(session_name="HOL", session_roots=[]) as session:
+        # Initialize a new theory with imports from HOL, store as "state0".
+        session.new_theory(
+            theory_name="Test",
+            new_state_name="state0",
+            imports=["Complex_Main", "HOL-Computational_Algebra.Primes"],
+            only_import_from_session_heap=False,
+        )
+        print(session.describe_state("state0"))
+
+        # Execute a lemma statement, store as "state1".
+        lemma = 'lemma foo: "prime p \\<Longrightarrow> p > (1::nat)"'
+        is_proof_done, proof_goals = session.execute("state0", lemma, "state1")
+        assert not is_proof_done
+        print(indent(proof_goals))  # "proof (prove) goal (1 subgoal):"...
+
+        # Execute a proof and check that it proved the lemma.
+        proof = "using prime_gt_1_nat by simp"
+        is_proof_done, proof_goals = session.execute("state1", proof, "state2")
+        assert is_proof_done and not proof_goals
+
+        # Find an alternative proof with Sledgehammer.
+        proof = session.hammer("state1", deleted_facts=["prime_gt_1_nat"])
+        print(indent(proof))  # "by (simp add: prime_nat_iff)"
+        is_proof_done, proof_goals = session.execute("state1", proof, "state3")
+        assert is_proof_done and not proof_goals
+
+
+def test_going_into_theory() -> None:
+    p = Path("/home/isabelle/Isabelle/src/HOL/Examples/Seq.thy")
+    with QIsabelleSession(theory_path=p) as session:
+        # Load all the theory until a given lemma statement, inclusive, store as "state0".
+        lemma = 'lemma reverse_reverse: "reverse (reverse xs) = xs"'
+        is_proof_done, proof_goals = session.load_theory(
+            p, lemma, inclusive=True, new_state_name="state0"
+        )
+        print(session.describe_state("state0"))
+        assert not is_proof_done
+        assert proof_goals.startswith("proof (prove)\ngoal (1 subgoal):\n")
+
+        proof = "by (induct xs) (simp_all add: reverse_conc)"
+        is_proof_done, proof_goals = session.execute("state0", proof, "state1")
+        assert is_proof_done and not proof_goals
+
+
+def test_pisa() -> None:
+    """Run the 600 'quick' tests from PISA on a model that just uses Sledgehammer at every step.
+
+    This takes hours on a powerful server.
+
+    Currently on default settings the results for this model are roughly:
+    * success: 179
+    * timeout-soft: 118, timeout-mid: 1, timeout-hard: 283 (hammer timeouts)
+    * execution-timeout: 6 (proof, or theory up to lemma statement, takes too long to execute)
+    * failed-proof: 1 (proof given by hammer fails)
+    * not_found: 10, no_such_file: 1  (test extracted from a different version of AFP than we have).
+
+    With larger hammer timeouts (60s) we can get to ~203 successes, so this varies with computing power.
+    """
+    ROOT_DIR = Path(__file__).parent.parent
+    ENVIRONMENT = read_env_dict(ROOT_DIR / ".env") | os.environ
+    AFP_DIR = Path(ENVIRONMENT["AFP_DIR"])
+    if not AFP_DIR.is_absolute():
+        AFP_DIR = ROOT_DIR / AFP_DIR
+
+    test_dir = ROOT_DIR / "test_theorems" / "PISA"
+    print("Loading tests from", test_dir)
+    tests = load_quick_test_cases(test_dir)
     print(f"Loaded {len(tests)} tests.")
 
+    # Warn about theory files not in tests but not in our AFP version.
     for test in tests:
         thy_file = AFP_DIR / "thys" / test.thy_file
         if not thy_file.exists():
             print(f"Warning ({test.name}): no such theory file: {thy_file}")
 
-    evaluate_model(DummyHammerModel(), tests, server_afp_dir=Path("/afp/"))
+    evaluate_model(DummyHammerModel(), tests)
 
 
-def test_qisabelle_basics() -> None:
-    p = Path("/afp/thys/Real_Impl/Real_Impl_Auxiliary.thy")
-    with QIsabelleProxy(theory_path=p) as proxy:
-        # Load all the theory until the end, without ending it, save as "state0".
-        print(header("load theory"))
-        proof_done, proof_goals = proxy.load_theory(p, "", False, "state0")
-        assert proof_done and not proof_goals
-
-        print(proxy.describe_state("state0"))
-
-        # Execute a lemma statement, save as "state1".
-        print(header("lemma"))
-        lemma = 'lemma primes_infinite: "\\<not> (finite {(p::nat). prime p})"'
-        print(indent(lemma))
-        proof_done, proof_goals = proxy.execute("state0", lemma, "state1")
-        print(header("proof state"))
-        print(indent(proof_goals))
-        assert not proof_done
-        assert proof_goals.startswith("proof (prove)\ngoal (1 subgoal):\n")
-
-        # Call hammer on "state1" to find a proof.
-        print(header("hammer"))
-        proof = proxy.hammer("state1")
-        print(indent(proof))
-
-        # Executre the proof and check it proved the lemma.
-        print(header("execute proof"))
-        proof_done, proof_goals = proxy.execute("state1", proof, "state2")
-        assert proof_done and not proof_goals
-        print("OK")
-
-
-def evaluate_model(model: Model, tests: list[TestCase], server_afp_dir: Path) -> None:
+def evaluate_model(model: Model, tests: list[TestCase]) -> None:
     summary: dict[str, int] = defaultdict(int)
     for i, test_case in enumerate(tests):
         print(header(f"Test case {test_case.name}, thy file: {test_case.thy_file}"))
         print(header("Lemma statement"))
         print(indent(test_case.lemma_statement))
 
-        theory_path = server_afp_dir / "thys" / test_case.thy_file
+        theory_path = Path("/afp/thys") / test_case.thy_file
         try:
             print(header("Server init"))
-            with QIsabelleProxy(theory_path=theory_path) as proxy:
-                r = run_model_greedily(model, theory_path, test_case.lemma_statement, proxy)
+            with QIsabelleSession(theory_path=theory_path) as session:
+                r = run_model_greedily(model, theory_path, test_case.lemma_statement, session)
             result = "success" if r else "failure"
         except Exception as e:
             print(header("Exception"))
@@ -93,17 +122,29 @@ def evaluate_model(model: Model, tests: list[TestCase], server_afp_dir: Path) ->
 
 
 def run_model_greedily(
-    model: Model, theory_path: Path, lemma_statement: str, proxy: QIsabelleProxy
+    model: Model,
+    theory_path: Path,
+    lemma_statement: str,
+    session: QIsabelleSession,
+    max_proof_search_time: float = 500.0,
 ) -> bool:
-    PROOF_SEARCH_MAX_TIME = 500.0  # float seconds
+    """
+    Run a model greedily, until it finds a proof, runs out of time, or fails to change the state.
+
+    Args:
+    - model
+    - theory_path: path to .thy file in server.
+    - lemma_statement: statement of lemma to prove (should appear in the theory file).
+    - session: QIsabelleSession initialized with a session containing the theory (or all its imports).
+    - max_proof_search_time: float seconds, maximum time to search for a proof.
+    """
     print(" Load theory ".center(100, "%"))
     state_name = "s"
-    proof_done, proof_goals = proxy.load_theory(theory_path, lemma_statement, True, state_name)
-    assert not proof_done
-
     prev_proof_step = lemma_statement
+    is_proof_done, proof_goals = session.load_theory(theory_path, lemma_statement, True, state_name)
+    assert not is_proof_done
 
-    end_time = time.time() + PROOF_SEARCH_MAX_TIME
+    end_time = time.time() + max_proof_search_time
     while time.time() < end_time:
         print(header("Proof state"))
         print(indent(proof_goals))
@@ -117,16 +158,16 @@ def run_model_greedily(
         new_state_name = f"{state_name}.0"
 
         if proof_step.strip() == "normalhammer":
-            proof_step = proxy.hammer(state_name)
+            proof_step = session.hammer(state_name)
             print(header("Hammer gave"))
             print(indent(proof_step))
-        proof_done, new_proof_state = proxy.execute(state_name, proof_step, new_state_name)
+        is_proof_done, new_proof_state = session.execute(state_name, proof_step, new_state_name)
 
         if new_proof_state == proof_goals:
             print("Proof state unchanged :(")
             return False
 
-        if proof_done:
+        if is_proof_done:
             return True
         prev_proof_step = proof_step
         state_name = new_state_name
@@ -134,18 +175,9 @@ def run_model_greedily(
     return False
 
 
-def test_extractions(extractions_dir: Path, afp_dir: Path) -> None:
-    print(f"Loading extractions from {extractions_dir}...")
-    extractions = load_extractions(extractions_dir)
-    print(f"Loaded {len(extractions)} extractions.")
-    for e in extractions:
-        if not (afp_dir / "thys" / e.thy_file).exists():
-            print(f"Warning (extraction): no such theory file: {afp_dir / 'thys' / e.thy_file}")
-
-
 def indent(text: str, indentation: str = "\t") -> str:
     """Indend text with tabs, strip the final newline."""
-    return indentation + text.strip().replace("\n", "\n" + indentation)
+    return textwrap.indent(text.strip(), indentation)
 
 
 def header(title: str, fill_char: str = "%") -> str:

@@ -45,13 +45,15 @@ class ParsedTheory(
     println(s"Warning: theory name (${theoryHeader.name}) != filename (${path.baseName}).")
 
   // Lookup imports, assert they're all already loaded in the session heap.
-  val importNames: List[String] =
-    theoryHeader.imports.map(ParsedTheory.getImportName(_, sessionName, path.toNIO))
-  if (debug) println("ParsedTheory importNames=" + importNames)
-  for (name <- importNames)
-    if (!ParsedTheory.isTheoryLoaded(name))
-      throw new Exception("Theory not loaded in session heap: " + name)
-  val imports: List[Theory] = importNames.map(Theory(_))
+  val imports: List[Theory] = ParsedTheory
+    .loadImports(
+      theoryHeader.imports,
+      sessionName,
+      masterDir,
+      onlyFromSessionHeap = true,
+      debug = debug
+    )
+    .toList
 
   if (debug) println("ParsedTheory begin... ")
   val theory = Ops.beginTheory(masterDir.toNIO.resolve(""), theoryHeader, imports).retrieveNow
@@ -200,10 +202,12 @@ object ParsedTheory extends OperationCollection {
     *
     * For theories already loaded in the heap (which is all we want here), this is:
     *   - for path imports: session_name + "." + (filename from the path).
-    *   - for literal imports (non-paths): the import string, unchanged. For new theories, you may
-    *     want to use Resources.default_qualifier == "Draft" as the session name.
+    *   - for literal imports (non-paths): the import string, unchanged.
     *
-    * The master_dir is only used for relative paths, only if they are not already in the heap.
+    * For new theories, you may want to use Resources.default_qualifier == "Draft" as the session
+    * name.
+    *
+    * The masterDir is only used for relative paths, only if they are not already in the heap.
     */
   def getImportName(importString: String, sessionName: String, masterDir: Path)(implicit
       isabelle: Isabelle
@@ -214,6 +218,37 @@ object ParsedTheory extends OperationCollection {
   /** Check if a theory is already loaded in the heap. */
   def isTheoryLoaded(theoryName: String)(implicit isabelle: Isabelle): Boolean = {
     Ops.isTheoryLoaded(theoryName).force.retrieveNow
+  }
+
+  /** Load imports of a theory.
+    *
+    * @param imports
+    *   Names or paths as used in Isar 'theory Foo imports ... begin'.
+    * @param sessionName
+    *   Name of currently loaded Isabelle session. Used to load imports specified with a path.
+    * @param masterDir
+    *   Used to resolve relative paths of theories not available in session heap.
+    * @param onlyFromSessionHeap
+    *   If true, throw an exception if any import is not already loaded in the session heap.
+    * @param debug
+    */
+  def loadImports(
+      imports: Seq[String],
+      sessionName: String = "Draft",
+      masterDir: os.Path = os.pwd,
+      onlyFromSessionHeap: Boolean = true,
+      debug: Boolean = true
+  )(implicit isabelle: Isabelle): Seq[Theory] = {
+    val importNames: Seq[String] =
+      imports.map(ParsedTheory.getImportName(_, sessionName, masterDir.toNIO))
+    if (debug) println("ParsedTheory importNames=" + importNames)
+
+    if (onlyFromSessionHeap)
+      for (name <- importNames)
+        if (!ParsedTheory.isTheoryLoaded(name))
+          throw new Exception("Theory not loaded in session heap: " + name)
+
+    importNames.map(Theory(_))
   }
 
   protected final class Ops(implicit isabelle: Isabelle) {

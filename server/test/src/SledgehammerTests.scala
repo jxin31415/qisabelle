@@ -11,7 +11,7 @@ class SledgehammerTests extends TestEnvironment {
         assumes "as = effect_to_assignments op"
         shows "as = (map (\<lambda>v. (v, True)) (add_effects_of op) @ map (\<lambda>v. (v, False)) (delete_effects_of op))"
     """
-    withIsabelle(afpDir / "Verified_SAT_Based_AI_Planning" / "STRIPS_Semantics.thy") {
+    withTheory(afpThysDir / "Verified_SAT_Based_AI_Planning" / "STRIPS_Semantics.thy") {
       (session: IsabelleSession, parsedTheory: ParsedTheory) =>
         implicit val isabelle = session.isabelle
         val sledgehammer      = new Sledgehammer(15.seconds, 20.seconds, 20.seconds)
@@ -48,7 +48,7 @@ class SledgehammerTests extends TestEnvironment {
         "bsmap (meld q q') = SkewBinomialHeapStruc.meld (bsmap q) (bsmap q')"
     """
 
-    withIsabelle(afpDir / "Binomial-Heaps" / "SkewBinomialHeap.thy") {
+    withTheory(afpThysDir / "Binomial-Heaps" / "SkewBinomialHeap.thy") {
       (session: IsabelleSession, parsedTheory: ParsedTheory) =>
         implicit val isabelle = session.isabelle
         val sledgehammer      = new Sledgehammer(15.seconds, 20.seconds, 20.seconds)
@@ -84,10 +84,10 @@ class SledgehammerTests extends TestEnvironment {
         assumes "bij f" and "MOST x. f x = x"
         shows "f \<in> perms"
     """
-    withIsabelle(isabelleDir / "src" / "HOL" / "Examples" / "Adhoc_Overloading_Examples.thy") {
+    withTheory(isabelleDir / "src" / "HOL" / "Examples" / "Adhoc_Overloading_Examples.thy") {
       (session: IsabelleSession, parsedTheory: ParsedTheory) =>
         implicit val isabelle = session.isabelle
-        val sledgehammer      = new Sledgehammer(15.seconds, 20.seconds, 20.seconds)
+        val sledgehammer      = new Sledgehammer(35.seconds, 40.seconds, 40.seconds)
 
         var state = parsedTheory.executeUntil(lemma, inclusive = true, nDebug = 10000)
         state = session.parseAndExecute("using assms", state)

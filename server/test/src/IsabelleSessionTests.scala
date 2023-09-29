@@ -1,10 +1,104 @@
 package server
 
 import de.unruh.isabelle.control.IsabelleMLException
+import de.unruh.isabelle.pure.{Theory, ToplevelState}
 
 class IsabelleSessionTests extends TestEnvironment {
+  test("Simple new theory") {
+    withIsabelleSession("HOL", Seq()) { session =>
+      implicit val isabelle = session.isabelle
+
+      // Start a new theory with minimal imports.
+      val imports = Seq("Main")
+      val importedTheories =
+        ParsedTheory.loadImports(imports, "HOL", onlyFromSessionHeap = true, debug = true)
+      val theory = Theory.mergeTheories("Foo", endTheory = false, theories = importedTheories)
+      var state  = ToplevelState(theory)
+      assert(state.isTheoryMode)
+
+      // Execute a few definitions and a lemma statement.
+      val statements = """
+        |datatype 'a seq = Empty | Seq 'a "'a seq"
+        |
+        |fun conc :: "'a seq \<Rightarrow> 'a seq \<Rightarrow> 'a seq"
+        |where
+        |"conc Empty ys = ys"
+        | |"conc (Seq x xs) ys = Seq x (conc xs ys)"
+        |
+        |lemma conc_empty: "conc xs Empty = xs"
+        """.stripMargin
+      state = session.parseAndExecute(statements, state)
+      assert(state.isProofMode)
+
+      // Prove the lemma.
+      val proof = "by (induct xs) simp_all"
+      state = session.parseAndExecute(proof, state)
+      assert(state.isTheoryMode)
+    }
+  }
+
+  test("New theory with imports not in heap") {
+    withIsabelleSession("HOL", Seq()) { session =>
+      implicit val isabelle = session.isabelle
+
+      val imports =
+        Seq(
+          "Complex_Main",
+          "HOL-Computational_Algebra.Primes"
+        )
+      val importedTheories =
+        ParsedTheory.loadImports(imports, "HOL", onlyFromSessionHeap = false, debug = true)
+      val theory = Theory.mergeTheories("Foo", endTheory = false, theories = importedTheories)
+      var state  = ToplevelState(theory)
+      assert(state.isTheoryMode)
+
+      val lemma = "lemma foo: \"prime p \\<Longrightarrow> p > (1::nat)\""
+      state = session.parseAndExecute(lemma, state)
+      assert(state.isProofMode)
+      println(state.proofStateDescription)
+
+      val proof = "using prime_gt_1_nat by simp"
+      state = session.parseAndExecute(proof, state)
+      assert(state.isTheoryMode)
+    }
+  }
+
+  test("AFP imports not in heap") {
+    withIsabelleSession("HOL", Seq(afpThysDir)) { session =>
+      implicit val isabelle = session.isabelle
+
+      val imports =
+        Seq(
+          "Main",
+          "Graph_Theory.Digraph"
+        )
+      val importedTheories =
+        ParsedTheory.loadImports(imports, "HOL", onlyFromSessionHeap = false, debug = true)
+      val theory = Theory.mergeTheories("Foo", endTheory = false, theories = importedTheories)
+      var state  = ToplevelState(theory)
+      assert(state.isTheoryMode)
+    }
+  }
+
+  test("AFP imports in heap") {
+    withIsabelleSession("Graph_Theory", Seq(afpThysDir)) { session =>
+      implicit val isabelle = session.isabelle
+
+      val imports =
+        Seq(
+          "Main",
+          "Graph_Theory.Digraph"
+        )
+      val importedTheories =
+        ParsedTheory.loadImports(imports, "HOL", onlyFromSessionHeap = false, debug = true)
+      val theory = Theory.mergeTheories("Foo", endTheory = false, theories = importedTheories)
+      var state  = ToplevelState(theory)
+      assert(state.isTheoryMode)
+    }
+  }
+
   test("Execute all theory: Graph_Theory/Digraph") {
-    withIsabelle(afpDir / "Graph_Theory" / "Digraph.thy") {
+    withTheory(afpThysDir / "Graph_Theory" / "Digraph.thy") {
       (session: IsabelleSession, parsedTheory: ParsedTheory) =>
         implicit val isabelle = session.isabelle
 
@@ -15,7 +109,7 @@ class IsabelleSessionTests extends TestEnvironment {
 
   test("Execute all theory: Coinductive/Examples/CCPO_Topology") {
     // One with a relative '../' import.
-    withIsabelle(afpDir / "Coinductive" / "Examples" / "CCPO_Topology.thy") {
+    withTheory(afpThysDir / "Coinductive" / "Examples" / "CCPO_Topology.thy") {
       (session: IsabelleSession, parsedTheory: ParsedTheory) =>
         implicit val isabelle = session.isabelle
 
@@ -25,15 +119,15 @@ class IsabelleSessionTests extends TestEnvironment {
   }
 
   test("Execute all theory: QR_Decomposition/Generalizations2") {
-    // var p = afpDir / "Real_Impl" / "Real_Impl.thy"
-    // var p = afpDir / "Real_Impl" / "Real_Impl_Auxiliary.thy"
-    // var p = afpDir / "Abstract-Rewriting" / "SN_Order_Carrier.thy"
-    // var p = afpDir / "Formula_Derivatives" / "Abstract_Formula.thy"
+    // var p = afpThysDir / "Real_Impl" / "Real_Impl.thy"
+    // var p = afpThysDir / "Real_Impl" / "Real_Impl_Auxiliary.thy"
+    // var p = afpThysDir / "Abstract-Rewriting" / "SN_Order_Carrier.thy"
+    // var p = afpThysDir / "Formula_Derivatives" / "Abstract_Formula.thy"
 
     // A much longer theory.
-    var p = afpDir / "QR_Decomposition" / "Generalizations2.thy"
+    var p = afpThysDir / "QR_Decomposition" / "Generalizations2.thy"
 
-    withIsabelle(p) { (session: IsabelleSession, parsedTheory: ParsedTheory) =>
+    withTheory(p) { (session: IsabelleSession, parsedTheory: ParsedTheory) =>
       implicit val isabelle = session.isabelle
 
       val state = parsedTheory.executeAll()
@@ -42,7 +136,7 @@ class IsabelleSessionTests extends TestEnvironment {
   }
 
   test("Execute all theory: HOL/Example/Seq") {
-    withIsabelle(isabelleDir / "src" / "HOL" / "Examples" / "Seq.thy") {
+    withTheory(isabelleDir / "src" / "HOL" / "Examples" / "Seq.thy") {
       (session: IsabelleSession, parsedTheory: ParsedTheory) =>
         implicit val isabelle = session.isabelle
 
@@ -62,7 +156,7 @@ class IsabelleSessionTests extends TestEnvironment {
     val secondLemma = "lemma reverse_reverse: \"reverse (reverse xs) = xs\""
     val secondProof = "by (induct xs) (simp_all add: reverse_conc)"
 
-    withIsabelle(isabelleDir / "src" / "HOL" / "Examples" / "Seq.thy") {
+    withTheory(isabelleDir / "src" / "HOL" / "Examples" / "Seq.thy") {
       (session: IsabelleSession, parsedTheory: ParsedTheory) =>
         implicit val isabelle = session.isabelle
 
@@ -107,7 +201,7 @@ class IsabelleSessionTests extends TestEnvironment {
     val secondLemma   = "lemma reverse_reverse: \"reverse (reverse xs) = xs\""
     val secondProof   = "by (induct xs) (simp_all add: reverse_conc)"
 
-    withIsabelle(isabelleDir / "src" / "HOL" / "Examples" / "Seq.thy") {
+    withTheory(isabelleDir / "src" / "HOL" / "Examples" / "Seq.thy") {
       (session: IsabelleSession, parsedTheory: ParsedTheory) =>
         implicit val isabelle = session.isabelle
 

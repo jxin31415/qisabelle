@@ -29,8 +29,11 @@ import server.Sledgehammer
   *   Loading a heap after the process started seems to be impossible, see
   *   `Isabelle/src/Pure/ML/ml_process.scala`.
   * @param sessionRoots
-  *   Additional directories in which Isabelle can find sessions (using ROOT and ROOTS files).
-  *   (These are passed as '-d' options to the 'isabelle build' process.)
+  *   Additional directories in which Isabelle can find sessions (using ROOT and ROOTS files) and
+  *   their theories. This should include all the theories you import, regardless of whether they
+  *   are in the heap or not. You don't need to give Isabelle source folders like HOL. You may add
+  *   all of "path_to_afp/thys/". (These are passed as '-d' options to the 'isabelle build'
+  *   process.)
   * @param workingDir
   *   Working directory for the Isabelle process. This doesn't influence a lot, mostly how relative
   *   paths are resolved for imports that are not found in the heap. It could be changed later if

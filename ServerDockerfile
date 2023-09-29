@@ -79,6 +79,8 @@ RUN mill server.assembly
 RUN mill show server.assembly
 # RUN mill server.test.compile
 
+RUN echo -e "ISABELLE_DIR=/home/isabelle/Isabelle\nAFP_DIR=/afp" > .env
+
 # When running inside Docker, listen to all interfaces, Docker determines real access.
 ENV QISABELLE_HOST="0.0.0.0"
 ENV QISABELLE_PORT=17000

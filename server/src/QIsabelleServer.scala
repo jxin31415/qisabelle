@@ -31,30 +31,36 @@ case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) exte
     "Hello from QIsabelle"
   }
 
-  /** Start an Isabelle process and load a given theory up until a given transition.
+  /** Start an Isabelle process by loading a given session.
     *
-    * @param theoryPath
-    *   Path to .thy file from which we guess the session name and session roots to load.
+    * @param sessionName
+    *   Name of Isabelle session (as defined by a ROOT file) whose heap (a session state cache) we
+    *   will load. You can just use 'HOL', but then loading a theory (other than Main) will take a
+    *   long time, since it will have to build all its imports.
+    * @param sessionRoots
+    *   Additional directories in which Isabelle can find sessions (using ROOT and ROOTS files) and
+    *   their theories. This should include all the theories you import, regardless of whether they
+    *   are in the heap or not. You don't need to give Isabelle source folders like HOL. You may add
+    *   "/afp/thys/" as a whole. (These are passed as '-d' options to the 'isabelle build' process.)
     * @param workingDir
-    *   The working directory of the Isabelle process. Doesn't influence anything important anymore;
-    *   it would be used for resolving relative theory paths for theories that are not found
-    *   pre-built in the session heap, but we throw an exception if that happens anyway. You can use
-    *   the directory containing the theory file, for example.
+    *   Working directory for the Isabelle process. This doesn't influence a lot, mostly how
+    *   relative paths are resolved for imports that are not found in the session heap.
     *
     * @return
     *   {"success": "success"} or {"error": str, "traceback": str}
     */
   @cask.postJson("/openIsabelleSession")
-  def openIsabelleSession(workingDir: String, theoryPath: String): ujson.Obj = {
+  def openIsabelleSession(
+      sessionName: String,
+      sessionRoots: Seq[String],
+      workingDir: String
+  ): ujson.Obj = {
     println("openIsabelleSession: start")
     try {
-      val sessionName  = IsabelleSession.guessSessionName(os.Path(theoryPath))
-      val sessionRoots = IsabelleSession.guessSessionRoots(os.Path(theoryPath))
-
       session = new IsabelleSession(
         isabelleDir = os.Path("/home/isabelle/Isabelle/"),
         sessionName = sessionName,
-        sessionRoots = sessionRoots,
+        sessionRoots = sessionRoots.map(os.Path(_)),
         workingDir = os.Path(workingDir),
         defaultPerTransitionTimeout = perTransitionTimeout,
         defaultParseAndExecuteTimeout = parseAndExecuteTimeout,
@@ -75,6 +81,29 @@ case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) exte
     }
   }
 
+  /** Start an Isabelle process by loading the session of a given theory.
+    *
+    * This does not load the theory itself, you still need to call loadTheory() afterwards.
+    *
+    * @param theoryPath
+    *   Path to .thy file from which we guess the session to load, along with session roots and
+    *   working directiory. E.g.: '/home/isabelle/Isabelle/src/HOL/Main.thy'
+    *
+    * @return
+    *   {"success": "success"} or {"error": str, "traceback": str}
+    */
+  @cask.postJson("/openIsabelleSessionForTheory")
+  def openIsabelleSessionForTheory(theoryPath: String): ujson.Obj = {
+    try {
+      val sessionName  = IsabelleSession.guessSessionName(os.Path(theoryPath))
+      val sessionRoots = IsabelleSession.guessSessionRoots(os.Path(theoryPath))
+      val workingDir   = os.Path(theoryPath) / os.up
+      openIsabelleSession(sessionName, sessionRoots.map(_.toString), workingDir.toString)
+    } catch {
+      case e: Throwable => exceptionJson(e)
+    }
+  }
+
   /** Stop the Isabelle process and clear the state map and theory from memory.
     *
     * @return
@@ -91,6 +120,48 @@ case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) exte
     return ujson.Obj("success" -> "Closed")
   }
 
+  /** Make a new state as if executing `theory Foo imports Bar Baz begin`.
+    *
+    * @param theoryName
+    *   Name of the new theory.
+    * @param newStateName
+    *   Name of the new state to save the result under.
+    * @param imports
+    *   List of theory names or paths to import.
+    * @param masterDir
+    *   Only used to resolve relative path imports that are not found in the session heap. Use
+    *   "/home/isabelle/Isabelle/src/", for example.
+    * @param onlyImportFromSessionHeap
+    *   If true (recommended), only import theories from the session heap (or throw exception).
+    * @return
+    *   {"success": "success"} or {"error": str, "traceback": str}
+    */
+  @cask.postJson("/newTheory")
+  def newTheory(
+      theoryName: String,
+      newStateName: String,
+      imports: List[String],
+      masterDir: String,
+      onlyImportFromSessionHeap: Boolean
+  ): ujson.Obj = {
+    try {
+      implicit val isabelle = session.isabelle
+      val importedTheories =
+        ParsedTheory.loadImports(
+          imports,
+          session.sessionName,
+          debug = true,
+          masterDir = os.Path(masterDir),
+          onlyFromSessionHeap = onlyImportFromSessionHeap
+        )
+      val theory = Theory.mergeTheories(theoryName, endTheory = false, theories = importedTheories)
+      stateMap += (newStateName -> ToplevelState(theory))
+      return ujson.Obj("success" -> "success")
+    } catch {
+      case e: Throwable => exceptionJson(e)
+    }
+  }
+
   /** Load a given theory file until a specified transition.
     *
     * @param theoryPath:
@@ -102,6 +173,8 @@ case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) exte
     *   ended, resulting in a state in Toplevel mode instead of Theory mode).
     * @param inclusive:
     *   whether to include the transition specified by `until` in the result.
+    * @param newStateName:
+    *   name of the new state to save the result under.
     * @return
     *   Same as `execute()`.
     */
@@ -131,11 +204,22 @@ case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) exte
     }
   }
 
+  /** Describe a state, like `State[mode=Proof, localTheory=None, proofState='''\n...\n''']`.
+    * @param stateName
+    * @return
+    *   {"description": str} or {"error": str, "traceback": str}
+    *
+    * The most common error is "State not found: {stateName}".
+    */
   @cask.postJson("/describeState")
   def describeState(stateName: String): ujson.Obj = {
-    implicit val isabelle    = session.isabelle
-    val state: ToplevelState = stateMap(stateName)
-    return ujson.Obj("description" -> ParsedTheory.describeState(state))
+    implicit val isabelle = session.isabelle
+    try {
+      val state: ToplevelState = getState(stateName)
+      return ujson.Obj("description" -> ParsedTheory.describeState(state))
+    } catch {
+      case e: Throwable => exceptionJson(e)
+    }
   }
 
   /** Parse an execute Isar code on a given state, save the resulting state under a new name.
@@ -155,10 +239,9 @@ case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) exte
     */
   @cask.postJson("/execute")
   def execute(stateName: String, isarCode: String, newStateName: String): ujson.Obj = {
-    implicit val isabelle    = session.isabelle
-    val state: ToplevelState = stateMap(stateName)
-
+    implicit val isabelle = session.isabelle
     try {
+      val state: ToplevelState = getState(stateName)
       val newState: ToplevelState =
         session.parseAndExecute(isarCode, state, debug = true)
       stateMap += (newStateName -> newState)
@@ -202,20 +285,31 @@ case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) exte
     */
   @cask.postJson("/hammer")
   def hammer(stateName: String, addedFacts: List[String], deletedFacts: List[String]): ujson.Obj = {
-    implicit val isabelle    = session.isabelle
-    val state: ToplevelState = stateMap(stateName)
-
+    implicit val isabelle = session.isabelle
     try {
+      val state: ToplevelState = getState(stateName)
       return ujson.Obj("proof" -> sledgehammer.findProofOrThrow(state, addedFacts, deletedFacts))
     } catch {
       case e: Throwable => exceptionJson(e)
     }
   }
 
-  def exceptionJson(e: Throwable): ujson.Obj = {
-    println(e.toString())
-    println("\t\t" + e.getStackTrace().mkString("\n\t\t"))
-    ujson.Obj("error" -> e.toString(), "traceback" -> e.getStackTrace().mkString("\n"))
+  protected def exceptionJson(e: Throwable): ujson.Obj = {
+    e match {
+      case q: QIsabelleException => ujson.Obj("error" -> q.message, "traceback" -> "")
+      case _ => {
+        println(e.toString())
+        println("\t\t" + e.getStackTrace().mkString("\n\t\t"))
+        ujson.Obj("error" -> e.toString(), "traceback" -> e.getStackTrace().mkString("\n"))
+      }
+    }
+  }
+
+  protected def getState(stateName: String): ToplevelState = {
+    stateMap.get(stateName) match {
+      case Some(state) => state
+      case None        => throw QIsabelleException(s"State not found: $stateName")
+    }
   }
 
   initialize()
@@ -227,7 +321,12 @@ object QISabelleServer extends cask.Main {
   override def host: String       = sys.env.getOrElse("QISABELLE_HOST", "localhost")
   override def port: Int          = sys.env.getOrElse("QISABELLE_PORT", "17000").toInt
   override def main(args: Array[String]): Unit = {
-    println("QIsabelleServer starts listening.")  // s" on ${host}:${port}")
+    println("QIsabelleServer starts listening.") // s" on ${host}:${port}")
     super.main(args)
   }
 }
+
+final case class QIsabelleException(
+    val message: String = "",
+    private val cause: Throwable = None.orNull
+) extends Exception(message, cause)
