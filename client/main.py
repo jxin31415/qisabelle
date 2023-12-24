@@ -11,9 +11,10 @@ from .utils import read_env_dict
 
 
 def main() -> None:
-    test_new_theory()
+    # test_new_theory()
     # test_going_into_theory()
     # test_pisa()
+    test_complex()
 
 
 def test_new_theory() -> None:
@@ -61,6 +62,52 @@ def test_going_into_theory() -> None:
         is_proof_done, proof_goals = session.execute("state0", proof, "state1")
         assert is_proof_done and not proof_goals
 
+def test_complex() -> None:
+    p = Path("/home/isabelle/Isabelle/src/HOL/Examples/Drinker.thy")
+    with QIsabelleSession(theory_path=p) as session:
+        # Make sure you use the raw notation and not fancy ASCII characters
+        # Parse an entire lemma, even if it's on multiple lines
+        lemma = 'lemma de_Morgan: assumes "\\<not> (\\<forall>x. P x)" shows "\\<exists>x. \\<not> P x"'
+        is_proof_done, proof_goals = session.load_theory(
+            p, lemma, inclusive=True, new_state_name="state0"
+        )
+        print(session.describe_state("state0"))
+        assert not is_proof_done
+        assert proof_goals.startswith("proof (prove)\ngoal (1 subgoal):\n")
+
+        # Executing single lines works!
+        proof = "proof (rule classical)"
+        is_proof_done, proof_goals = session.execute("state0", proof, "state1")
+        print(session.describe_state("state1"))
+
+        proof = "assume \"\\<nexists>x. \\<not> P x\""
+        is_proof_done, proof_goals = session.execute("state1", proof, "state2")
+        print(session.describe_state("state2"))
+
+        # Executing multiple lines works!
+        proof = """
+  have "\\<forall>x. P x"
+  proof
+    fix x show "P x"
+    proof (rule classical)
+      assume "\\<not> P x"
+      then have "\\<exists>x. \\<not> P x" ..
+      with \\<open>\\<nexists>x. \\<not> P x\\<close> show ?thesis by contradiction
+    qed
+  qed
+                """
+        is_proof_done, proof_goals = session.execute("state2", proof, "state3")
+        print(session.describe_state("state3"))
+
+        # proof state properly stores hypotheses / "this" keyword in addition to just goals!
+        proof = "with \\<open>\\<not> (\\<forall>x. P x)\\<close> show ?thesis by contradiction"
+        is_proof_done, proof_goals = session.execute("state3", proof, "state4")
+        print(session.describe_state("state4"))
+
+        # proof is not complete until qed
+        proof = "qed"
+        is_proof_done, proof_goals = session.execute("state4", proof, "state5")
+        print(is_proof_done)
 
 def test_pisa() -> None:
     """Run the 600 'quick' tests from PISA on a model that just uses Sledgehammer at every step.
