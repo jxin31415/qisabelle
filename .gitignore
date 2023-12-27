@@ -8,3 +8,4 @@ out
 xtmp
 afp*
 dockerheaps*
+*.DS_Store

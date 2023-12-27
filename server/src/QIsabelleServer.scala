@@ -221,6 +221,36 @@ case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) exte
       case e: Throwable => exceptionJson(e)
     }
   }
+  @cask.postJson("/getMode")
+  def getMode(stateName: String): ujson.Obj = {
+    implicit val isabelle = session.isabelle
+    try {
+      val state: ToplevelState = getState(stateName)
+      return ujson.Obj("description" -> ParsedTheory.getMode(state))
+    } catch {
+      case e: Throwable => exceptionJson(e)
+    }
+  }
+  @cask.postJson("/getTheory")
+  def getTheory(stateName: String): ujson.Obj = {
+    implicit val isabelle = session.isabelle
+    try {
+      val state: ToplevelState = getState(stateName)
+      return ujson.Obj("description" -> ParsedTheory.getTheory(state))
+    } catch {
+      case e: Throwable => exceptionJson(e)
+    }
+  }
+  @cask.postJson("/getProofStateDescription")
+  def getProofStateDescription(stateName: String): ujson.Obj = {
+    implicit val isabelle = session.isabelle
+    try {
+      val state: ToplevelState = getState(stateName)
+      return ujson.Obj("description" -> ParsedTheory.getProofStateDescription(state))
+    } catch {
+      case e: Throwable => exceptionJson(e)
+    }
+  }
 
   /** Parse an execute Isar code on a given state, save the resulting state under a new name.
     *

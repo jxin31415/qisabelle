@@ -197,6 +197,15 @@ object ParsedTheory extends OperationCollection {
     else
       s + s", proofState='''\n${indent(state.proofStateDescription.trim)}\n''']"
   }
+  def getMode(state: ToplevelState)(implicit isabelle: Isabelle): String = {
+    s"${state.mode}"
+  }
+  def getTheory(state: ToplevelState)(implicit isabelle: Isabelle): String = {
+    s"${state.localTheoryDescription}"
+  }
+  def getProofStateDescription(state: ToplevelState)(implicit isabelle: Isabelle): String = {
+    s"${state.proofStateDescription.trim}"
+  }
 
   /** Turns an import string from a theory header into a theory name that can be loaded.
     *

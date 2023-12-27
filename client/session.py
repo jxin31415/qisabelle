@@ -117,6 +117,18 @@ class QIsabelleSession:
     def describe_state(self, state_name: str) -> str:
         r = self._post("/describeState", {"stateName": state_name})
         return cast(str, r["description"])
+    
+    def get_mode(self, state_name: str) -> str:
+        r = self._post("/getMode", {"stateName": state_name})
+        return cast(str, r["description"])
+    
+    def get_theory(self, state_name: str) -> str:
+        r = self._post("/getTheory", {"stateName": state_name})
+        return cast(str, r["description"])
+    
+    def get_proof_state_description(self, state_name: str) -> str:
+        r = self._post("/getProofStateDescription", {"stateName": state_name})
+        return cast(str, r["description"])
 
     def execute(self, state_name: str, isar_code: str, new_state_name: str) -> tuple[bool, str]:
         r = self._post(
