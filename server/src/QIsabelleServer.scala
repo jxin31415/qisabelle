@@ -183,13 +183,16 @@ case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) exte
       theoryPath: String,
       until: String,
       inclusive: Boolean,
-      newStateName: String
+      newStateName: String,
+      initOnly: Boolean,
   ): ujson.Obj = {
     try {
       implicit val isabelle = session.isabelle
       val parsedTheory = new ParsedTheory(os.Path(theoryPath), session.sessionName, debug = true)
       val newState = {
-        if (until.nonEmpty)
+        if (initOnly)
+          parsedTheory.execute(parsedTheory.initTransitions())
+        else if (until.nonEmpty)
           parsedTheory.executeUntil(until, inclusive = inclusive, nDebug = 3)
         else
           parsedTheory.executeAll(stopBeforeEnd = !inclusive, nDebug = 3)

@@ -14,7 +14,8 @@ def main() -> None:
     # test_new_theory()
     # test_going_into_theory()
     # test_pisa()
-    test_complex()
+    # test_complex()
+    test_from_start()
 
 
 def test_new_theory() -> None:
@@ -44,7 +45,6 @@ def test_new_theory() -> None:
         print(indent(proof))  # "by (simp add: prime_nat_iff)"
         is_proof_done, proof_goals = session.execute("state1", proof, "state3")
         assert is_proof_done and not proof_goals
-
 
 def test_going_into_theory() -> None:
     p = Path("/home/isabelle/Isabelle/src/HOL/Examples/Seq.thy")
@@ -111,6 +111,14 @@ qed
     proof = "qed"
     is_proof_done, proof_goals = session.execute("state4", proof, "state5")
     print(is_proof_done)
+
+def test_from_start() -> None:
+    p = Path("/home/isabelle/Isabelle/src/HOL/Examples/Seq.thy")
+    with QIsabelleSession(theory_path=p) as session:
+        session.load_theory(
+            p, "", inclusive=False, new_state_name="state0", init_only=True
+        )
+        print(session.describe_state("state0"))
 
 def test_pisa() -> None:
     """Run the 600 'quick' tests from PISA on a model that just uses Sledgehammer at every step.

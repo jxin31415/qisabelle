@@ -101,7 +101,7 @@ class QIsabelleSession:
         assert r == {"success": "success"}, r
 
     def load_theory(
-        self, theory_path: Path, until: str, inclusive: bool, new_state_name: str
+        self, theory_path: Path, until: str, inclusive: bool, new_state_name: str, init_only: bool = False
     ) -> tuple[bool, str]:
         r = self._post(
             "/loadTheory",
@@ -110,6 +110,7 @@ class QIsabelleSession:
                 "until": until,
                 "inclusive": inclusive,
                 "newStateName": new_state_name,
+                "initOnly": init_only,
             },
         )
         return cast(bool, r["proofDone"]), cast(str, r["proofGoals"])
