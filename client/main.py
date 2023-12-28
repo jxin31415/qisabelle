@@ -14,8 +14,8 @@ def main() -> None:
     # test_new_theory()
     # test_going_into_theory()
     # test_pisa()
-    # test_complex()
-    test_from_start()
+    test_complex()
+    # test_from_start()
 
 
 def test_new_theory() -> None:
@@ -108,6 +108,7 @@ qed
     print(session.describe_state("state4"))
 
     # proof is not complete until qed
+    print(is_proof_done)
     proof = "qed"
     is_proof_done, proof_goals = session.execute("state4", proof, "state5")
     print(is_proof_done)
