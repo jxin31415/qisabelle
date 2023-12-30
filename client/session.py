@@ -131,10 +131,10 @@ class QIsabelleSession:
         r = self._post("/getProofStateDescription", {"stateName": state_name})
         return cast(str, r["description"])
 
-    def execute(self, state_name: str, isar_code: str, new_state_name: str) -> tuple[bool, str]:
+    def execute(self, state_name: str, isar_code: str, new_state_name: str, timeout: int = 0) -> tuple[bool, str]:
         r = self._post(
             "/execute",
-            {"stateName": state_name, "isarCode": isar_code, "newStateName": new_state_name},
+            {"stateName": state_name, "isarCode": isar_code, "newStateName": new_state_name, "timeout": timeout},
         )
         return cast(bool, r["proofDone"]), cast(str, r["proofGoals"])
 

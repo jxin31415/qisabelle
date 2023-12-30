@@ -271,12 +271,15 @@ case class QIsabelleRoutes()(implicit cc: castor.Context, log: cask.Logger) exte
     *   - On error: {"error": str, "traceback": str}
     */
   @cask.postJson("/execute")
-  def execute(stateName: String, isarCode: String, newStateName: String): ujson.Obj = {
+  def execute(stateName: String, isarCode: String, newStateName: String, timeout: Int): ujson.Obj = {
     implicit val isabelle = session.isabelle
     try {
       val state: ToplevelState = getState(stateName)
       val newState: ToplevelState =
-        session.parseAndExecute(isarCode, state, debug = true)
+        if (timeout == 0)
+          session.parseAndExecute(isarCode, state, debug = true)
+        else
+          session.parseAndExecute(isarCode, state, debug = true, perTransitionTimeout = timeout.seconds)
       stateMap += (newStateName -> newState)
 
       return ujson.Obj(
